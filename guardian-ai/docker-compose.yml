@@ -2,7 +2,7 @@ services:
   backend:
     build: ./backend
     environment:
-      - STEP_MS=500          # dashboard pacing; lower = faster demo
+      - STEP_MS=150          # dashboard pacing; lower = faster demo
     expose:
       - "3000"
     restart: unless-stopped
