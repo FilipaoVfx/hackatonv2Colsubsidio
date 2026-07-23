@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guardian AI · Pipeline de Llamadas</title>
+  <link rel="stylesheet" href="/pipeline.css" />
+</head>
+<body>
+<div class="shell">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">🛡️</div>
+      <div>
+        <div class="brand-name">Guardian AI</div>
+        <div class="brand-sub">Panel de Control</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item" href="/">Resumen</a>
+      <a class="nav-item" href="/">Conversaciones</a>
+      <a class="nav-item" href="/">Llamadas de Voz</a>
+      <a class="nav-item active" href="/pipeline">Pipeline</a>
+      <a class="nav-item" data-soon>Clientes</a>
+      <a class="nav-item" data-soon>Oportunidades</a>
+      <a class="nav-item" data-soon>Pólizas Vendidas</a>
+      <a class="nav-item" data-soon>Productos</a>
+      <a class="nav-item" data-soon>Campañas</a>
+      <a class="nav-item" data-soon>Reportes</a>
+      <a class="nav-item" data-soon>Alertas</a>
+      <a class="nav-item" data-soon>Configuración</a>
+    </nav>
+    <div class="advisor">
+      <div class="advisor-avatar">S</div>
+      <div>
+        <div class="advisor-role">Asesor IA</div>
+        <div class="advisor-name">Sofía</div>
+        <div class="advisor-status"><span class="dot-on"></span> En línea</div>
+      </div>
+    </div>
+    <div class="cols-logo">
+      <div class="cols-mark"></div>
+      <div>
+        <div class="cols-name">Colsubsidio</div>
+        <div class="cols-tag">Con todo lo que te mereces</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <h1>Pipeline de Llamadas</h1>
+        <p class="sub">Bitácora detallada y análisis por fases</p>
+      </div>
+      <div class="head-actions">
+        <span id="headDate" class="chip"></span>
+        <button id="exportBtn" class="btn-primary">Exportar</button>
+      </div>
+    </header>
+
+    <!-- LIST VIEW -->
+    <section id="listView">
+      <div class="card">
+        <div class="card-head"><h2>Llamadas registradas</h2></div>
+        <table class="table" id="callsTable">
+          <thead>
+            <tr><th>ID de llamada</th><th>Cliente</th><th>Fecha</th><th>Duración</th>
+                <th>Canal</th><th>Resultado</th><th>Puntaje</th></tr>
+          </thead>
+          <tbody id="callsBody"><tr><td colspan="7" class="muted">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- DETAIL VIEW -->
+    <section id="detailView" hidden>
+      <div class="detail-nav">
+        <button id="backBtn" class="link-btn">← Volver al listado</button>
+        <div class="pager">
+          <button id="prevBtn" class="btn-ghost">Anterior</button>
+          <button id="nextBtn" class="btn-ghost">Siguiente →</button>
+        </div>
+      </div>
+
+      <!-- call header -->
+      <div class="card call-head">
+        <div class="ch-customer">
+          <div class="avatar" id="chAvatar">AM</div>
+          <div>
+            <div class="ch-name" id="chName">—</div>
+            <div class="ch-phone"><span id="chPhone">—</span> <span id="chNew" class="badge-new">Cliente nuevo</span></div>
+          </div>
+        </div>
+        <div class="ch-field"><span class="k">ID de llamada</span><span class="v" id="chCode">—</span></div>
+        <div class="ch-field"><span class="k">Fecha</span><span class="v" id="chDate">—</span></div>
+        <div class="ch-field"><span class="k">Duración</span><span class="v" id="chDur">—</span></div>
+        <div class="ch-field"><span class="k">Asesor IA</span><span class="v" id="chAdvisor">—</span></div>
+        <div class="ch-field"><span class="k">Canal</span><span class="v" id="chChannel">—</span></div>
+        <div class="ch-field"><span class="k">Resultado</span><span class="v"><span id="chOutcome" class="badge-outcome">—</span></span></div>
+      </div>
+
+      <!-- phases -->
+      <div class="card">
+        <div class="phases" id="phases"></div>
+        <div class="timeline">
+          <span class="t-start">00:00</span>
+          <div class="t-track" id="tTrack"></div>
+          <span class="t-end" id="tEnd">00:00</span>
+        </div>
+      </div>
+
+      <!-- tabs + panels -->
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-tab="transcripcion">Transcripción</button>
+        <button class="tab" data-tab="fases">Análisis por Fase</button>
+        <button class="tab" data-tab="emociones">Emociones y Tono</button>
+        <button class="tab" data-tab="objetos">Objetos Detectados</button>
+        <button class="tab" data-tab="acciones">Acciones y Eventos</button>
+      </div>
+
+      <div class="grid3">
+        <!-- transcript -->
+        <div class="card col-transcript">
+          <div class="t-controls">
+            <input id="tSearch" type="search" placeholder="Buscar en la transcripción…" />
+            <select id="tSpeaker">
+              <option value="">Todos los hablantes</option>
+              <option value="agent">Asesor IA</option>
+              <option value="customer">Cliente</option>
+            </select>
+          </div>
+          <div id="transcript" class="transcript"></div>
+          <div class="player">
+            <button class="p-btn">⏮</button>
+            <button class="p-btn p-play">▶</button>
+            <button class="p-btn">⏭</button>
+            <span class="p-rate">1.0x</span>
+            <div class="p-bar"><div class="p-fill"></div></div>
+            <span class="p-time">00:00</span><span class="p-time" id="pTotal">00:00</span>
+          </div>
+        </div>
+
+        <!-- phase detail -->
+        <div class="card col-phase">
+          <h2>Detalle de la Fase Seleccionada</h2>
+          <div class="phase-sel" id="phaseSel">
+            <span class="ps-name" id="psName">—</span>
+            <span class="ps-status" id="psStatus">—</span>
+          </div>
+          <div class="ps-grid">
+            <div><span class="k">Duración</span><span class="v" id="psDur">—</span></div>
+            <div><span class="k">Participación del Asesor IA</span><span class="v" id="psAgent">—</span></div>
+            <div><span class="k">Participación del Cliente</span><span class="v" id="psCustomer">—</span></div>
+            <div><span class="k">Objetivo</span><span class="v" id="psObjective">—</span></div>
+          </div>
+          <h3>Análisis de la Fase</h3>
+          <ul class="checklist" id="psChecklist"></ul>
+          <h3>Palabras Clave Detectadas</h3>
+          <div class="keywords" id="psKeywords"></div>
+          <h3>Emoción Predominante</h3>
+          <div class="emotion"><span id="psEmoji">🙂</span>
+            <div><div class="e-name" id="psEmotion">—</div>
+                 <div class="e-conf" id="psConf">—</div></div>
+          </div>
+          <h3>Hallazgos</h3>
+          <div class="findings" id="psFindings">—</div>
+        </div>
+
+        <!-- right column -->
+        <div class="col-right">
+          <div class="card">
+            <h2>Resumen de la Llamada</h2>
+            <div class="score-row">
+              <div class="gauge">
+                <svg viewBox="0 0 120 70" class="g-svg">
+                  <path d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="#e8ecf2" stroke-width="11" stroke-linecap="round"/>
+                  <path id="gArc" d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="url(#gGrad)" stroke-width="11" stroke-linecap="round"/>
+                  <defs><linearGradient id="gGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#22c55e"/>
+                  </linearGradient></defs>
+                </svg>
+                <div class="g-val"><span id="scoreVal">—</span><small>/100</small></div>
+                <div class="g-label" id="scoreLabel">—</div>
+              </div>
+              <div class="dims" id="dims"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Perfil del Cliente</h2>
+            <ul class="profile" id="profile"></ul>
+            <a class="more" href="#">Ver perfil completo →</a>
+          </div>
+
+          <div class="card">
+            <h2>Insights Automáticos</h2>
+            <ul class="insights" id="insights"></ul>
+            <a class="more" href="#">Ver todos los insights →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="/pipeline.js"></script>
+</body>
+</html>

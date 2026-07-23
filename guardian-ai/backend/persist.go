@@ -42,6 +42,9 @@ func NewSupabasePersistence() (*SupabasePersistence, error) {
 
 // Append is subscribed to "*". Failures are logged, never fatal (the demo keeps
 // running even if the DB blips).
+// Pool exposes the connection pool for read-only consumers (analytics).
+func (p *SupabasePersistence) Pool() *pgxpool.Pool { return p.pool }
+
 func (p *SupabasePersistence) Append(ev Event) {
 	payload, _ := json.Marshal(ev.Payload)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

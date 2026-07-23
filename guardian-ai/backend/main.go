@@ -25,10 +25,12 @@ func main() {
 
 	// Real Supabase persistence via pgx (ADR-004/005). Optional: if the DB URL
 	// is unset or unreachable the demo still runs on the in-memory store.
+	var analytics *Analytics
 	if p, err := NewSupabasePersistence(); err != nil {
 		log.Printf("supabase persistence disabled: %v", err)
 	} else if p != nil {
 		bus.Subscribe("*", p.Append)
+		analytics = NewAnalytics(p.Pool())
 		log.Printf("supabase persistence enabled")
 	}
 
@@ -179,6 +181,29 @@ func main() {
 			return fiber.NewError(502, err.Error())
 		}
 		return c.JSON(fiber.Map{"vapi_call_id": id, "status": "dialing"})
+	})
+
+	// ---- Pipeline de Llamadas (post-call analytics, read-only) ----
+	app.Get("/api/analytics/calls", func(c *fiber.Ctx) error {
+		if analytics == nil {
+			return fiber.NewError(503, "analytics requires supabase")
+		}
+		list, err := analytics.List(c.Context())
+		if err != nil {
+			return fiber.NewError(500, err.Error())
+		}
+		return c.JSON(list)
+	})
+
+	app.Get("/api/analytics/calls/:id", func(c *fiber.Ctx) error {
+		if analytics == nil {
+			return fiber.NewError(503, "analytics requires supabase")
+		}
+		d, err := analytics.Detail(c.Context(), c.Params("id"))
+		if err != nil {
+			return fiber.NewError(404, err.Error())
+		}
+		return c.JSON(d)
 	})
 
 	// Replay the persisted event log for a call (RN-003).
