@@ -108,7 +108,32 @@ El dashboard consulta `GET /api/capabilities`; si `elevenlabs=true` pide el MP3 
 
 **Restricción de plan real:** la cuenta free de ElevenLabs **no permite voces de librería vía API** (HTTP 402 `paid_plan_required`). Sí permite **voces premade**. Por eso `ELEVENLABS_VOICE_ID` apunta a una premade (`EXAVITQu4vr4xnSDxMaL`). Verificado: 200 OK, MP3 de ~44 KB.
 
-### 3.2 Entrada (STT)
+### 3.2 Grabaciones de las llamadas sembradas
+
+Las 5 llamadas de demostración tienen **audio real generado con ElevenLabs** a partir de su transcripción, con **dos voces premade** para distinguir interlocutores:
+
+| Rol | Voz | ID |
+|-----|-----|-----|
+| Sofía (IA) | Sarah | `EXAVITQu4vr4xnSDxMaL` |
+| Cliente | Adam | `pNInz6obpgDQGcFmaJgB` |
+
+Proceso: una petición TTS por línea (44 en total, `eleven_multilingual_v2`), concatenadas por llamada con ffmpeg insertando **0,45 s de silencio** entre turnos, a MP3 128 kbps.
+
+Salida en `frontend/audio/`, servida por nginx en `/audio/<archivo>.mp3` y referenciada desde `call_analytics.recording_url`:
+
+| Archivo | Duración audio | `duration_sec` (nominal) |
+|---------|---------------|--------------------------|
+| `call-1423.mp3` | 1:02 | 12:48 |
+| `call-1547.mp3` | 0:39 | 17:22 |
+| `call-0912.mp3` | 0:35 | 8:54 |
+| `call-1105.mp3` | 0:30 | 11:29 |
+| `call-1638.mp3` | 0:26 | 6:42 |
+
+> **El audio es una dramatización condensada**, no una grabación de una llamada de esa duración: recorre solo los turnos guardados en la transcripción. Por eso dura menos que la duración nominal. La barra del reproductor se rige por la **duración real del audio**; el encabezado y la línea de tiempo de fases conservan la **nominal**. Ambas cifras son correctas en su propio marco, pero no son la misma magnitud.
+
+El reproductor (`pipeline.js`) soporta play/pausa, ±10 s, velocidad (1×/1,25×/1,5×/0,75×) y búsqueda por clic en la barra. Si la llamada no tiene grabación, se deshabilita solo.
+
+### 3.3 Entrada (STT)
 
 - **Navegador**: `SpeechRecognition` / `webkitSpeechRecognition`, `lang=es-ES`. Botón 🎤 dicta y envía el turno.
 - **Vapi**: transcriptor Deepgram con `language: es` (caminos 3 y 4).
@@ -312,7 +337,7 @@ Formato: `postgresql://postgres.<ref>:<pass>@aws-0-<region>.pooler.supabase.com:
 
 1. **Telefonía PSTN bloqueada.** El número Vapi (`provider: vapi`) no tiene transporte: toda llamada saliente muere con `call.start.error-get-transport`. La API responde y autentica correctamente; falta aprovisionar un número real (comprar en Vapi o importar uno de Twilio). El código no requiere cambios.
 2. **ElevenLabs plan free**: solo voces premade vía API.
-3. **`recording_url` sin audio real.** Las llamadas sembradas apuntan a MP3 inexistentes; el reproductor se ve pero no reproduce. Las llamadas proyectadas lo dejan en `null`.
+3. **Grabaciones**: las 5 llamadas sembradas **sí tienen MP3 real** generado con ElevenLabs (ver §3.3) y el reproductor funciona. Las llamadas **proyectadas** (demo, GPT, web) dejan `recording_url` en `null` y el reproductor se deshabilita — no se guarda audio de las conversaciones en vivo.
 4. **Escala temporal del demo mock**: con `STEP_MS=450` una llamada simulada dura ~12 s reales, así que sus fases son mucho más cortas que una llamada real y algunos porcentajes redondean a 0. Los datos son correctos; la escala es artificial.
 5. **Scoring heurístico**, no un modelo entrenado (ver §5.4).
 6. **Sincronía en vivo de llamada telefónica**: para ver una llamada PSTN en el dashboard mientras ocurre haría falta un webhook HTTPS público (`serverUrl` de Vapi). La llamada web sí se sincroniza, porque el navegador reenvía los eventos a `/api/vapi/ingest`.

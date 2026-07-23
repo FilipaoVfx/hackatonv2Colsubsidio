@@ -134,12 +134,13 @@
           </div>
           <div id="transcript" class="transcript"></div>
           <div class="player">
-            <button class="p-btn">⏮</button>
-            <button class="p-btn p-play">▶</button>
-            <button class="p-btn">⏭</button>
-            <span class="p-rate">1.0x</span>
-            <div class="p-bar"><div class="p-fill"></div></div>
-            <span class="p-time">00:00</span><span class="p-time" id="pTotal">00:00</span>
+            <button class="p-btn" id="pBack" title="Retroceder 10s">⏮</button>
+            <button class="p-btn p-play" id="pPlay" title="Reproducir">▶</button>
+            <button class="p-btn" id="pFwd" title="Avanzar 10s">⏭</button>
+            <button class="p-rate" id="pRate" title="Velocidad">1.0x</button>
+            <div class="p-bar" id="pBar"><div class="p-fill" id="pFill"></div></div>
+            <span class="p-time" id="pCur">00:00</span><span class="p-time" id="pTotal">00:00</span>
+            <audio id="pAudio" preload="metadata"></audio>
           </div>
         </div>
 

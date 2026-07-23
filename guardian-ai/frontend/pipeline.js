@@ -79,6 +79,7 @@ function renderDetail() {
   oc.className = "badge-outcome " + (OUTCOME_CLASS[d.outcome] ?? "info");
   $("headDate").textContent = fmtDate(d.started_at);
   $("pTotal").textContent = mmss(d.duration_sec);
+  loadAudio(d.recording_url);
 
   renderPhases();
   renderTranscript();
@@ -218,5 +219,69 @@ $("tabs").addEventListener("click", (e) => {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   e.target.classList.add("active");
 });
+
+// ---------- reproductor de la grabación ----------
+// El audio sintetizado con ElevenLabs es una dramatización condensada de la
+// llamada: dura menos que `duration_sec` (la duración nominal registrada).
+// La barra se rige por el audio real; el encabezado conserva la nominal.
+const RATES = [1, 1.25, 1.5, 0.75];
+let rateIdx = 0;
+
+function audioEl() { return $("pAudio"); }
+
+function loadAudio(url) {
+  const a = audioEl();
+  if (!a) return;
+  a.pause();
+  a.removeAttribute("src");
+  $("pFill").style.width = "0%";
+  $("pCur").textContent = "00:00";
+  $("pPlay").textContent = "▶";
+  if (!url) { $("pPlay").disabled = true; $("pPlay").title = "Sin grabación"; return; }
+  $("pPlay").disabled = false;
+  $("pPlay").title = "Reproducir";
+  a.src = url;
+  a.playbackRate = RATES[rateIdx];
+  a.load();
+}
+
+(function wirePlayer() {
+  const a = audioEl();
+  if (!a) return;
+
+  a.addEventListener("loadedmetadata", () => {
+    if (isFinite(a.duration)) $("pTotal").textContent = mmss(Math.round(a.duration));
+  });
+  a.addEventListener("timeupdate", () => {
+    if (!isFinite(a.duration) || a.duration === 0) return;
+    $("pFill").style.width = (a.currentTime / a.duration * 100) + "%";
+    $("pCur").textContent = mmss(Math.floor(a.currentTime));
+  });
+  a.addEventListener("ended", () => { $("pPlay").textContent = "▶"; });
+  a.addEventListener("error", () => {
+    $("pPlay").disabled = true;
+    $("pPlay").title = "Grabación no disponible";
+  });
+
+  $("pPlay").addEventListener("click", () => {
+    if (!a.src) return;
+    if (a.paused) { a.play(); $("pPlay").textContent = "⏸"; }
+    else { a.pause(); $("pPlay").textContent = "▶"; }
+  });
+  $("pBack").addEventListener("click", () => { a.currentTime = Math.max(0, a.currentTime - 10); });
+  $("pFwd").addEventListener("click", () => {
+    if (isFinite(a.duration)) a.currentTime = Math.min(a.duration, a.currentTime + 10);
+  });
+  $("pRate").addEventListener("click", () => {
+    rateIdx = (rateIdx + 1) % RATES.length;
+    a.playbackRate = RATES[rateIdx];
+    $("pRate").textContent = RATES[rateIdx].toFixed(2).replace(/0$/, "") + "x";
+  });
+  $("pBar").addEventListener("click", (e) => {
+    if (!isFinite(a.duration)) return;
+    const r = $("pBar").getBoundingClientRect();
+    a.currentTime = Math.min(a.duration, Math.max(0, (e.clientX - r.left) / r.width * a.duration));
+  });
+})();
 
 loadList();
