@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -117,11 +118,49 @@ func main() {
 		return c.Send(audio)
 	})
 
-	// Voice capability flags for the dashboard.
+	// Voice capability flags for the dashboard. The Vapi PUBLIC key + assistant
+	// id are safe to expose to the browser (that's their purpose for web calls).
 	app.Get("/api/capabilities", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"llm": engine != nil, "elevenlabs": voice.Enabled(), "vapi": vapi.Enabled(),
+			"vapi_web":          os.Getenv("VAPI_PUBLIC_KEY") != "" && os.Getenv("VAPI_ASSISTANT_ID") != "",
+			"vapi_public_key":   os.Getenv("VAPI_PUBLIC_KEY"),
+			"vapi_assistant_id": os.Getenv("VAPI_ASSISTANT_ID"),
 		})
+	})
+
+	// Bridge browser-side Vapi web-call events into our event bus so a real voice
+	// call is mirrored live on Mission Control and persisted to Supabase.
+	// No public HTTPS webhook needed — the browser forwards the SDK events here.
+	app.Post("/api/vapi/ingest", func(c *fiber.Ctx) error {
+		var in struct {
+			CallID string `json:"call_id"`
+			Event  string `json:"event"` // start | user | agent | end
+			Text   string `json:"text"`
+		}
+		if err := c.BodyParser(&in); err != nil {
+			return fiber.NewError(400, "bad body")
+		}
+		if in.CallID == "" {
+			in.CallID = uuid.NewString()
+		}
+		switch in.Event {
+		case "start":
+			bus.Publish(in.CallID, CALL_STARTED, "vapi_web", map[string]interface{}{
+				"from": "web-mic", "channel": "webrtc",
+			})
+			bus.Publish(in.CallID, STATE_CHANGED, "conversation_engine", map[string]interface{}{"from": "CREATED", "to": "DISCOVERY"})
+		case "user":
+			bus.Publish(in.CallID, USER_SPOKE, "vapi_web", map[string]interface{}{"is_final": true})
+			bus.Publish(in.CallID, TRANSCRIPT_UPDATED, "vapi_web", map[string]interface{}{"role": "user", "text": in.Text, "is_final": true})
+		case "agent":
+			bus.Publish(in.CallID, TRANSCRIPT_UPDATED, "voice_adapter", map[string]interface{}{"role": "agent", "text": in.Text, "is_final": true})
+			bus.Publish(in.CallID, VOICE_SENT, "voice_adapter", map[string]interface{}{"text": in.Text, "voice_id": "vapi-web"})
+		case "end":
+			bus.Publish(in.CallID, CALL_ENDED, "vapi_web", map[string]interface{}{"reason": "hangup"})
+			bus.Publish(in.CallID, STATE_CHANGED, "conversation_engine", map[string]interface{}{"from": "RESPONDING", "to": "ENDED"})
+		}
+		return c.JSON(fiber.Map{"call_id": in.CallID})
 	})
 
 	// Place a real outbound phone call (customer talks to Guardian AI live).

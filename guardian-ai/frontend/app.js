@@ -199,7 +199,8 @@ $("msgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendTu
 // ---- Voice out: real ElevenLabs TTS, fallback to browser Web Speech ----
 let ttsEnabled = false;
 let audioEl = null;
-fetch("/api/capabilities").then((r) => r.json()).then((c) => { ttsEnabled = !!c.elevenlabs; }).catch(() => {});
+let caps = {};
+fetch("/api/capabilities").then((r) => r.json()).then((c) => { caps = c; ttsEnabled = !!c.elevenlabs; }).catch(() => {});
 
 async function speak(text) {
   if (!$("voiceToggle").checked || !text) return;
@@ -243,7 +244,53 @@ if (SR) {
   $("micBtn").style.display = "none";
 }
 
-// ---- Real phone call via Vapi ----
+// ---- Real voice call in the browser (Vapi WebRTC) ----
+// Events are bridged to /api/vapi/ingest so the call is mirrored on Mission
+// Control (via WS) and persisted to Supabase — no public webhook needed.
+let vapi = null, webCallID = null, webCallActive = false;
+async function toggleWebCall() {
+  if (webCallActive) { if (vapi) vapi.stop(); return; }
+  if (!caps.vapi_web) { alert("Vapi web no configurado (falta VAPI_PUBLIC_KEY / VAPI_ASSISTANT_ID)"); return; }
+  const btn = $("webCallBtn"); btn.disabled = true; btn.textContent = "conectando…";
+  try {
+    const mod = await import("https://esm.sh/@vapi-ai/web@2");
+    const Vapi = mod.default;
+    vapi = new Vapi(caps.vapi_public_key);
+    webCallID = crypto.randomUUID();
+
+    vapi.on("call-start", async () => {
+      webCallActive = true; btn.disabled = false; btn.textContent = "⏹️ Colgar"; btn.classList.add("rec");
+      await ingest("start", "");
+    });
+    vapi.on("call-end", async () => {
+      webCallActive = false; btn.textContent = "🎙️ Llamada web"; btn.classList.remove("rec");
+      await ingest("end", ""); webCallID = null;
+    });
+    vapi.on("message", (m) => {
+      if (m.type === "transcript" && m.transcriptType === "final") {
+        ingest(m.role === "user" ? "user" : "agent", m.transcript);
+      }
+    });
+    vapi.on("error", (e) => { console.error(e); btn.disabled = false; btn.textContent = "🎙️ Llamada web"; });
+
+    await vapi.start(caps.vapi_assistant_id);
+  } catch (e) {
+    console.error(e); alert("No se pudo iniciar la llamada web: " + e.message);
+    btn.disabled = false; btn.textContent = "🎙️ Llamada web";
+  }
+}
+async function ingest(event, text) {
+  try {
+    const r = await fetch("/api/vapi/ingest", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: webCallID, event, text }),
+    });
+    const d = await r.json(); if (d.call_id) webCallID = d.call_id;
+  } catch (_) {}
+}
+$("webCallBtn").addEventListener("click", toggleWebCall);
+
+// ---- Real phone call via Vapi (PSTN — needs imported Twilio number) ----
 $("callBtn").addEventListener("click", async () => {
   const to = $("phoneInput").value.trim();
   if (!/^\+\d{8,15}$/.test(to)) { alert("Número E.164, ej: +573001234567"); return; }
