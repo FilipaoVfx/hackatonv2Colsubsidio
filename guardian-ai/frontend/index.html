@@ -12,7 +12,9 @@
     <div class="controls">
       <span id="wsStatus" class="pill pill-off">WS: conectando…</span>
       <span id="stateBadge" class="pill">state: —</span>
-      <button id="simBtn">Simular llamada</button>
+      <label class="pill"><input type="checkbox" id="voiceToggle" checked /> voz</label>
+      <button id="startBtn">Nueva conversación</button>
+      <button id="simBtn" class="ghost">Simular (mock)</button>
     </div>
   </header>
 
@@ -28,6 +30,11 @@
       <h2>Conversación</h2>
       <div id="pipeline" class="pipeline"></div>
       <div id="transcript" class="transcript"></div>
+      <div class="composer">
+        <input id="msgInput" type="text" placeholder="Escribe lo que dice el cliente… (o usa 🎤)" autocomplete="off" />
+        <button id="micBtn" title="Hablar">🎤</button>
+        <button id="sendBtn">Enviar</button>
+      </div>
     </section>
 
     <!-- RIGHT: reasoning + metrics -->

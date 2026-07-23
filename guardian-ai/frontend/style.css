@@ -79,3 +79,17 @@ button:disabled { opacity: .5; cursor: default; }
 .metric small { color: var(--muted); font-size: 10px; }
 
 .risk-low { color: var(--ok); } .risk-medium { color: var(--warn); } .risk-high { color: var(--bad); }
+
+.col-center { display: flex; flex-direction: column; }
+.transcript { flex: 1; }
+.composer { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line); }
+.composer input { flex: 1; background: var(--panel2); border: 1px solid var(--line);
+  color: var(--txt); border-radius: 8px; padding: 10px 12px; font: inherit; }
+.composer input:focus { outline: none; border-color: var(--accent); }
+.composer button { padding: 10px 14px; }
+button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+#micBtn { background: var(--panel2); border: 1px solid var(--line); }
+#micBtn.rec { background: var(--bad); color: #fff; border-color: var(--bad); }
+.pill input { vertical-align: middle; margin-right: 4px; }
+.thinking { align-self: center; color: var(--muted); font-size: 12px; font-style: italic; }

@@ -66,7 +66,11 @@ function handle(ev) {
       $("stateBadge").className = "pill pill-on";
       break;
     case "TRANSCRIPT_UPDATED":
-      if (p.is_final) addMsg(p.role, p.text);
+      if (p.is_final) {
+        removeThinking();
+        addMsg(p.role, p.text);
+        if (p.role === "agent") speak(p.text);
+      }
       break;
     case "FEATURE_UPDATED":
       if (p.key === "risk_level") {
@@ -90,6 +94,7 @@ function handle(ev) {
       if (p.strategy) $("mNarr").textContent = p.strategy;
       break;
     case "LLM_RESPONSE":
+      if (p.strategy) $("mNarr").textContent = p.strategy;
       totalTokens += (p.tokens_in || 0) + (p.tokens_out || 0);
       totalCost += p.cost_usd || 0;
       $("mLatency").textContent = p.latency_ms || 0;
@@ -154,10 +159,73 @@ function connect() {
   ws.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) { console.error(e); } };
 }
 
+// ---- Real conversation (GPT-4o) ----
+let callID = null;
+
+function showThinking() {
+  removeThinking();
+  const d = document.createElement("div");
+  d.className = "thinking"; d.id = "thinkingRow";
+  d.textContent = "Guardian AI está pensando…";
+  $("transcript").appendChild(d);
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+function removeThinking() { const t = $("thinkingRow"); if (t) t.remove(); }
+
+async function startConversation() {
+  const r = await fetch("/api/calls/start", { method: "POST" });
+  if (!r.ok) { alert("Motor LLM no configurado (falta OPENAI_API_KEY)"); return; }
+  callID = (await r.json()).call_id;
+  $("msgInput").focus();
+}
+
+async function sendTurn() {
+  const text = $("msgInput").value.trim();
+  if (!text) return;
+  if (!callID) { await startConversation(); if (!callID) return; }
+  $("msgInput").value = "";
+  showThinking();
+  const r = await fetch(`/api/calls/${callID}/turn`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) { removeThinking(); addMsg("agent", "<em>Error:</em> " + (await r.text())); }
+}
+
+$("startBtn").addEventListener("click", startConversation);
+$("sendBtn").addEventListener("click", sendTurn);
+$("msgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendTurn(); });
+
+// ---- Voice out: browser Web Speech (free stand-in for ElevenLabs) ----
+function speak(text) {
+  if (!$("voiceToggle").checked || !window.speechSynthesis || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "es-ES"; u.rate = 1.05;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+// ---- Voice in: browser SpeechRecognition ----
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+if (SR) {
+  rec = new SR(); rec.lang = "es-ES"; rec.interimResults = false;
+  rec.onresult = (e) => { $("msgInput").value = e.results[0][0].transcript; sendTurn(); };
+  rec.onend = () => $("micBtn").classList.remove("rec");
+  $("micBtn").addEventListener("click", () => {
+    $("micBtn").classList.add("rec");
+    try { rec.start(); } catch (_) {}
+  });
+} else {
+  $("micBtn").style.display = "none";
+}
+
+// ---- Mock simulate (offline, no API cost) ----
 $("simBtn").addEventListener("click", async () => {
   $("simBtn").disabled = true;
+  callID = null;
   try { await fetch("/api/calls/simulate", { method: "POST" }); }
-  finally { setTimeout(() => ($("simBtn").disabled = false), 12000); }
+  finally { setTimeout(() => ($("simBtn").disabled = false), 6000); }
 });
 
 initPipeline();

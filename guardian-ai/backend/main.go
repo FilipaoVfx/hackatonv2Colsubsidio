@@ -22,6 +22,15 @@ func main() {
 		log.Printf("[%s seq=%d] %s <- %s", ev.CallID[:8], ev.Sequence, ev.Type, ev.Producer)
 	})
 
+	// Real Supabase persistence via pgx (ADR-004/005). Optional: if the DB URL
+	// is unset or unreachable the demo still runs on the in-memory store.
+	if p, err := NewSupabasePersistence(); err != nil {
+		log.Printf("supabase persistence disabled: %v", err)
+	} else if p != nil {
+		bus.Subscribe("*", p.Append)
+		log.Printf("supabase persistence enabled")
+	}
+
 	step := 500 * time.Millisecond
 	if v := os.Getenv("STEP_MS"); v != "" {
 		if d, err := time.ParseDuration(v + "ms"); err == nil {
@@ -30,18 +39,54 @@ func main() {
 	}
 	orch := NewOrchestrator(bus, step)
 
+	// Real conversation engine (GPT-4o). Present only when a key is configured.
+	var engine *ConversationEngine
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		engine = NewConversationEngine(bus, NewLLMClient())
+		log.Printf("real LLM engine enabled (gpt-4o)")
+	}
+
 	app := fiber.New(fiber.Config{AppName: "Guardian AI"})
 	app.Use(cors.New())
 
 	app.Get("/api/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok", "service": "guardian-ai", "time": time.Now().UTC()})
+		return c.JSON(fiber.Map{
+			"status": "ok", "service": "guardian-ai", "time": time.Now().UTC(),
+			"llm": engine != nil,
+		})
 	})
 
-	// Trigger a simulated end-to-end call (MVP demo entrypoint).
+	// Trigger a scripted end-to-end call (offline demo, no API cost).
 	app.Post("/api/calls/simulate", func(c *fiber.Ctx) error {
 		from := c.Query("from", "+57 300 000 0000")
 		id := orch.Run(from)
 		return c.JSON(fiber.Map{"call_id": id, "status": "started"})
+	})
+
+	// Start a REAL conversation (GPT-4o driven).
+	app.Post("/api/calls/start", func(c *fiber.Ctx) error {
+		if engine == nil {
+			return fiber.NewError(503, "LLM engine not configured")
+		}
+		from := c.Query("from", "web-client")
+		return c.JSON(fiber.Map{"call_id": engine.Start(from), "status": "started"})
+	})
+
+	// Send one user utterance into a real conversation.
+	app.Post("/api/calls/:id/turn", func(c *fiber.Ctx) error {
+		if engine == nil {
+			return fiber.NewError(503, "LLM engine not configured")
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := c.BodyParser(&in); err != nil || in.Text == "" {
+			return fiber.NewError(400, "text required")
+		}
+		if err := engine.Turn(c.Context(), c.Params("id"), in.Text); err != nil {
+			return fiber.NewError(502, err.Error())
+		}
+		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
 	// Replay the persisted event log for a call (RN-003).
@@ -63,7 +108,6 @@ func main() {
 	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
 		hub.Add(c)
 		defer hub.Remove(c)
-		// keep the connection open; ignore inbound frames (RN-004)
 		for {
 			if _, _, err := c.ReadMessage(); err != nil {
 				return

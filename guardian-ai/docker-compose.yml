@@ -1,6 +1,8 @@
 services:
   backend:
     build: ./backend
+    env_file:
+      - .env                 # OPENAI/ELEVENLABS/VAPI/SUPABASE keys (gitignored)
     environment:
       - STEP_MS=150          # dashboard pacing; lower = faster demo
     expose:
