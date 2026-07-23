@@ -196,9 +196,32 @@ $("startBtn").addEventListener("click", startConversation);
 $("sendBtn").addEventListener("click", sendTurn);
 $("msgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendTurn(); });
 
-// ---- Voice out: browser Web Speech (free stand-in for ElevenLabs) ----
-function speak(text) {
-  if (!$("voiceToggle").checked || !window.speechSynthesis || !text) return;
+// ---- Voice out: real ElevenLabs TTS, fallback to browser Web Speech ----
+let ttsEnabled = false;
+let audioEl = null;
+fetch("/api/capabilities").then((r) => r.json()).then((c) => { ttsEnabled = !!c.elevenlabs; }).catch(() => {});
+
+async function speak(text) {
+  if (!$("voiceToggle").checked || !text) return;
+  if (ttsEnabled) {
+    try {
+      const r = await fetch("/api/tts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (r.ok) {
+        const url = URL.createObjectURL(await r.blob());
+        if (audioEl) { audioEl.pause(); }
+        audioEl = new Audio(url);
+        audioEl.play().catch(() => browserSpeak(text));
+        return;
+      }
+    } catch (_) {}
+  }
+  browserSpeak(text);
+}
+function browserSpeak(text) {
+  if (!window.speechSynthesis) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "es-ES"; u.rate = 1.05;
   window.speechSynthesis.cancel();
@@ -219,6 +242,21 @@ if (SR) {
 } else {
   $("micBtn").style.display = "none";
 }
+
+// ---- Real phone call via Vapi ----
+$("callBtn").addEventListener("click", async () => {
+  const to = $("phoneInput").value.trim();
+  if (!/^\+\d{8,15}$/.test(to)) { alert("Número E.164, ej: +573001234567"); return; }
+  $("callBtn").disabled = true;
+  try {
+    const r = await fetch("/api/phone/call", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to }),
+    });
+    const d = await r.json().catch(() => ({}));
+    alert(r.ok ? "Llamando a " + to + " (Vapi call " + (d.vapi_call_id || "") + ")" : "Error: " + (d.message || r.status));
+  } finally { $("callBtn").disabled = false; }
+});
 
 // ---- Mock simulate (offline, no API cost) ----
 $("simBtn").addEventListener("click", async () => {

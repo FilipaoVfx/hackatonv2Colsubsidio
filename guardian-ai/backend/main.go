@@ -46,6 +46,15 @@ func main() {
 		log.Printf("real LLM engine enabled (gpt-4o)")
 	}
 
+	voice := NewVoiceAdapter()
+	if voice.Enabled() {
+		log.Printf("elevenlabs voice enabled")
+	}
+	vapi := NewVapiAdapter()
+	if vapi.Enabled() {
+		log.Printf("vapi telephony enabled")
+	}
+
 	app := fiber.New(fiber.Config{AppName: "Guardian AI"})
 	app.Use(cors.New())
 
@@ -87,6 +96,50 @@ func main() {
 			return fiber.NewError(502, err.Error())
 		}
 		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
+	// Real ElevenLabs TTS: text -> MP3 (dashboard plays it).
+	app.Post("/api/tts", func(c *fiber.Ctx) error {
+		if !voice.Enabled() {
+			return fiber.NewError(503, "voice not configured")
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := c.BodyParser(&in); err != nil || in.Text == "" {
+			return fiber.NewError(400, "text required")
+		}
+		audio, err := voice.Synthesize(c.Context(), in.Text)
+		if err != nil {
+			return fiber.NewError(502, err.Error())
+		}
+		c.Set("Content-Type", "audio/mpeg")
+		return c.Send(audio)
+	})
+
+	// Voice capability flags for the dashboard.
+	app.Get("/api/capabilities", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"llm": engine != nil, "elevenlabs": voice.Enabled(), "vapi": vapi.Enabled(),
+		})
+	})
+
+	// Place a real outbound phone call (customer talks to Guardian AI live).
+	app.Post("/api/phone/call", func(c *fiber.Ctx) error {
+		if !vapi.Enabled() {
+			return fiber.NewError(503, "vapi not configured")
+		}
+		var in struct {
+			To string `json:"to"`
+		}
+		if err := c.BodyParser(&in); err != nil || in.To == "" {
+			return fiber.NewError(400, "to (E.164 phone) required")
+		}
+		id, err := vapi.PlaceCall(c.Context(), in.To)
+		if err != nil {
+			return fiber.NewError(502, err.Error())
+		}
+		return c.JSON(fiber.Map{"vapi_call_id": id, "status": "dialing"})
 	})
 
 	// Replay the persisted event log for a call (RN-003).

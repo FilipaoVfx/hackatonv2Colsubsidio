@@ -92,4 +92,7 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 #micBtn { background: var(--panel2); border: 1px solid var(--line); }
 #micBtn.rec { background: var(--bad); color: #fff; border-color: var(--bad); }
 .pill input { vertical-align: middle; margin-right: 4px; }
+.phone { background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+  border-radius: 8px; padding: 7px 10px; width: 130px; font: inherit; }
+.phone:focus { outline: none; border-color: var(--accent); }
 .thinking { align-self: center; color: var(--muted); font-size: 12px; font-style: italic; }
