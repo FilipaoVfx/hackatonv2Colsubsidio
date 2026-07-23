@@ -133,7 +133,7 @@ Vite
 
 Tailwind
 
-shadcn/ui
+heroui/https://heroui.com/en/docs/react/getting-started
 
 Zustand
 
