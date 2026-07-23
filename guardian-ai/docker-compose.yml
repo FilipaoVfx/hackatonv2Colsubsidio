@@ -4,7 +4,7 @@ services:
     env_file:
       - .env                 # OPENAI/ELEVENLABS/VAPI/SUPABASE keys (gitignored)
     environment:
-      - STEP_MS=150          # dashboard pacing; lower = faster demo
+      - STEP_MS=450          # dashboard pacing; lower = faster demo
     expose:
       - "3000"
     restart: unless-stopped
