@@ -1,0 +1,81 @@
+:root {
+  --bg: #0b0f17; --panel: #131a26; --panel2: #1a2334; --line: #243044;
+  --txt: #e6edf6; --muted: #8b98ac; --accent: #4f9dff; --ok: #3fd08a;
+  --warn: #ffb14e; --bad: #ff6b6b; --user: #2a3a55; --agent: #1f3d33;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--txt);
+  font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: 0 0 12px; }
+h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 18px 0 8px; }
+.muted { color: var(--muted); }
+
+.topbar { display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.controls { display: flex; gap: 10px; align-items: center; }
+button { background: var(--accent); color: #001; border: 0; padding: 8px 14px;
+  border-radius: 8px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.pill { padding: 4px 10px; border-radius: 999px; background: var(--panel2);
+  border: 1px solid var(--line); font-size: 12px; }
+.pill-off { color: var(--warn); }
+.pill-on { color: var(--ok); }
+
+.grid { display: grid; grid-template-columns: 300px 1fr 340px; gap: 14px;
+  padding: 14px; height: calc(100vh - 58px); }
+.col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; overflow-y: auto; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { border-left: 2px solid var(--line); padding: 4px 0 12px 12px;
+  position: relative; font-size: 12px; }
+.timeline li::before { content: ""; position: absolute; left: -5px; top: 7px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.timeline .t-type { font-weight: 600; }
+.timeline .t-meta { color: var(--muted); font-size: 11px; }
+
+.pipeline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.stage { font-size: 11px; padding: 4px 9px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--muted); }
+.stage.active { background: var(--accent); color: #001; border-color: var(--accent); }
+.stage.done { color: var(--ok); border-color: var(--ok); }
+
+.transcript { display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 82%; padding: 10px 12px; border-radius: 12px; }
+.msg.user { align-self: flex-start; background: var(--user); border-bottom-left-radius: 3px; }
+.msg.agent { align-self: flex-end; background: var(--agent); border-bottom-right-radius: 3px; }
+.msg .who { font-size: 10px; text-transform: uppercase; color: var(--muted); }
+
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.card { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 10px; display: flex; flex-direction: column; gap: 3px; }
+.card .k { font-size: 11px; color: var(--muted); }
+.card .v { font-weight: 600; }
+
+.features { display: flex; flex-direction: column; gap: 6px; }
+.feat { display: flex; justify-content: space-between; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 12px; }
+.feat .fk { color: var(--muted); }
+
+.reco { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px; }
+.reco.on { border-color: var(--ok); }
+.reco .rp { font-weight: 600; color: var(--ok); }
+.reco .rr { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.tools { font-size: 12px; }
+.tool-row { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 9px; margin-bottom: 6px; }
+
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.metric { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 10px; text-align: center; }
+.metric span { display: block; font-size: 18px; font-weight: 700; }
+.metric small { color: var(--muted); font-size: 10px; }
+
+.risk-low { color: var(--ok); } .risk-medium { color: var(--warn); } .risk-high { color: var(--bad); }

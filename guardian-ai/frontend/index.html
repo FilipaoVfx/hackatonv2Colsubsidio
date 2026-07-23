@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guardian AI · Mission Control</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span> Guardian AI · <span class="muted">Mission Control</span></div>
+    <div class="controls">
+      <span id="wsStatus" class="pill pill-off">WS: conectando…</span>
+      <span id="stateBadge" class="pill">state: —</span>
+      <button id="simBtn">Simular llamada</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- LEFT: timeline -->
+    <section class="col col-left">
+      <h2>Timeline</h2>
+      <ol id="timeline" class="timeline"></ol>
+    </section>
+
+    <!-- CENTER: transcript + pipeline -->
+    <section class="col col-center">
+      <h2>Conversación</h2>
+      <div id="pipeline" class="pipeline"></div>
+      <div id="transcript" class="transcript"></div>
+    </section>
+
+    <!-- RIGHT: reasoning + metrics -->
+    <section class="col col-right">
+      <h2>Razonamiento IA</h2>
+      <div class="cards">
+        <div class="card"><span class="k">Narrativa</span><span id="mNarr" class="v">—</span></div>
+        <div class="card"><span class="k">Riesgo</span><span id="mRisk" class="v">—</span></div>
+        <div class="card"><span class="k">Sentimiento</span><span id="mSent" class="v">—</span></div>
+        <div class="card"><span class="k">Intención</span><span id="mIntent" class="v">—</span></div>
+      </div>
+
+      <h3>Features</h3>
+      <div id="features" class="features"></div>
+
+      <h3>Recomendación</h3>
+      <div id="reco" class="reco muted">Sin recomendación aún.</div>
+
+      <h3>Tools</h3>
+      <div id="tools" class="tools muted">—</div>
+
+      <h3>Métricas</h3>
+      <div class="metrics">
+        <div class="metric"><span id="mLatency">0</span><small>latencia ms</small></div>
+        <div class="metric"><span id="mTokens">0</span><small>tokens</small></div>
+        <div class="metric"><span id="mCost">$0.0000</span><small>costo</small></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
