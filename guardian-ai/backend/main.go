@@ -31,7 +31,10 @@ func main() {
 	} else if p != nil {
 		bus.Subscribe("*", p.Append)
 		analytics = NewAnalytics(p.Pool())
-		log.Printf("supabase persistence enabled")
+		// Every finished call is projected into the analytics tables so it
+		// shows up in "Pipeline de Llamadas" (demo, real GPT call or web call).
+		bus.Subscribe("*", NewProjector(store, p.Pool()).OnEvent)
+		log.Printf("supabase persistence + analytics projector enabled")
 	}
 
 	step := 500 * time.Millisecond
@@ -99,6 +102,21 @@ func main() {
 			return fiber.NewError(502, err.Error())
 		}
 		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
+	// End a real conversation: emits the closing events so the call gets
+	// projected into the Pipeline view.
+	app.Post("/api/calls/:id/end", func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		if id == "" {
+			return fiber.NewError(400, "call id required")
+		}
+		bus.Publish(id, SUMMARY_GENERATED, "decision_engine", map[string]interface{}{
+			"summary": "Conversación finalizada por el operador.",
+		})
+		bus.Publish(id, CALL_ENDED, "conversation_engine", map[string]interface{}{"reason": "hangup"})
+		bus.Publish(id, STATE_CHANGED, "conversation_engine", map[string]interface{}{"from": "RESPONDING", "to": "ENDED"})
+		return c.JSON(fiber.Map{"status": "ended", "call_id": id})
 	})
 
 	// Real ElevenLabs TTS: text -> MP3 (dashboard plays it).

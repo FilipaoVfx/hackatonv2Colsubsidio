@@ -193,6 +193,19 @@ async function sendTurn() {
 }
 
 $("startBtn").addEventListener("click", startConversation);
+
+// Finalizar: emits the closing events so the call is projected into /pipeline.
+$("endBtn").addEventListener("click", async () => {
+  if (!callID) { alert("No hay conversación activa."); return; }
+  $("endBtn").disabled = true;
+  try {
+    const r = await fetch(`/api/calls/${callID}/end`, { method: "POST" });
+    if (r.ok) {
+      addMsg("agent", "<em>Llamada finalizada. Disponible en <a href='/pipeline'>Pipeline de Llamadas</a>.</em>");
+      callID = null;
+    }
+  } finally { $("endBtn").disabled = false; }
+});
 $("sendBtn").addEventListener("click", sendTurn);
 $("msgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendTurn(); });
 
