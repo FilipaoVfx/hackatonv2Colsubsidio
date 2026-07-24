@@ -13,6 +13,12 @@ const OUTCOME_CLASS = { "Interesado": "", "Cerrado": "", "Seguimiento": "warn", 
 
 let calls = [], current = null, currentIdx = -1, selectedPhase = 0;
 
+// Etiqueta legible del canal. WhatsApp es el canal de texto; el resto conserva
+// la semántica entrante/saliente previa.
+const channelLabel = (ch, long) => ch === "whatsapp"
+  ? (long ? "WhatsApp 💬" : "WhatsApp")
+  : (ch === "inbound" ? (long ? "Llamada Entrante" : "Entrante") : (long ? "Llamada Saliente" : "Saliente"));
+
 const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 const initials = (n) => n.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 const fmtDate = (iso) => {
@@ -34,7 +40,7 @@ async function loadList() {
       <td>${c.customer}<div class="muted" style="font-size:11px">${c.phone}</div></td>
       <td>${fmtDate(c.started_at)}</td>
       <td>${mmss(c.duration_sec)}</td>
-      <td>${c.channel === "inbound" ? "Entrante" : "Saliente"}</td>
+      <td>${channelLabel(c.channel, false)}</td>
       <td><span class="badge-outcome ${OUTCOME_CLASS[c.outcome] ?? "info"}">${c.outcome}</span></td>
       <td class="score-pill ${cls}">${c.score_overall}</td>`;
     tr.addEventListener("click", () => openDetail(i));
@@ -73,7 +79,7 @@ function renderDetail() {
   $("chDate").textContent = fmtDate(d.started_at);
   $("chDur").textContent = mmss(d.duration_sec) + " min";
   $("chAdvisor").textContent = `${d.advisor_name} (${d.advisor_voice})`;
-  $("chChannel").textContent = d.channel === "inbound" ? "Llamada Entrante" : "Llamada Saliente";
+  $("chChannel").textContent = channelLabel(d.channel, true);
   const oc = $("chOutcome");
   oc.textContent = d.outcome;
   oc.className = "badge-outcome " + (OUTCOME_CLASS[d.outcome] ?? "info");

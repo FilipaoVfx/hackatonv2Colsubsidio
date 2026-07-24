@@ -259,6 +259,35 @@ Cada transición se refleja con `STATE_CHANGED`.
 
 ---
 
+### 4.7b Chat / WhatsApp (canal de texto)
+
+El canal WhatsApp reutiliza el mismo pipeline LLM que la voz. Solo cambian los
+eventos de entrada/salida: `MESSAGE_RECEIVED` es el análogo de `USER_SPOKE` y
+`MESSAGE_SENT` el de `VOICE_SENT`. `TRANSCRIPT_UPDATED` se emite igual en ambos
+canales, por lo que el proyector y la analítica no cambian. Ver `06_FEATURE_CHAT_WHATSAPP.md`.
+
+#### `MESSAGE_RECEIVED`
+- **Disparador:** mensaje entrante del cliente por WhatsApp (webhook Twilio o simulación).
+- **Producer:** `whatsapp_adapter`
+- **Consumers:** `conversation_engine`
+- **Efecto:** estado → `LISTENING`.
+- **Payload:**
+```json
+{ "is_final": true }
+```
+
+#### `MESSAGE_SENT`
+- **Disparador:** el sistema envía un mensaje de texto al cliente (respuesta LLM u opener).
+- **Producer:** `whatsapp_adapter`
+- **Consumers:** `whatsapp_adapter` (entrega vía Twilio), `persistence`, `ws_hub`
+- **Efecto:** estado → `RESPONDING` → `LISTENING`.
+- **Payload:**
+```json
+{ "text": "string", "to": "string", "wa_message_id": "string", "status": "queued", "channel": "whatsapp" }
+```
+
+---
+
 ### 4.8 Cierre
 
 #### `SUMMARY_GENERATED`
@@ -334,6 +363,8 @@ CALL_ENDED → SUMMARY_GENERATED → STATE_CHANGED (→ ENDED)
 | `TOOL_EXECUTED` | tool_engine | decision_engine, feature_store, persistence, ws_hub |
 | `RECOMMENDATION_GENERATED` | decision_engine | conversation_engine, persistence, ws_hub |
 | `VOICE_SENT` | voice_adapter | conversation_engine, persistence, ws_hub |
+| `MESSAGE_RECEIVED` | whatsapp_adapter | conversation_engine |
+| `MESSAGE_SENT` | whatsapp_adapter | whatsapp_adapter, persistence, ws_hub |
 | `SUMMARY_GENERATED` | decision_engine | persistence, ws_hub |
 | `ERROR_OCCURRED` | cualquiera | conversation_engine, persistence, ws_hub |
 

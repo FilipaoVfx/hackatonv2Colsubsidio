@@ -5,8 +5,23 @@ services:
       - .env                 # OPENAI/ELEVENLABS/VAPI/SUPABASE keys (gitignored)
     environment:
       - STEP_MS=450          # dashboard pacing; lower = faster demo
+      # Cerebro del canal WhatsApp: por defecto el MOCK local de la Protege API
+      # (restricción de red sobre la API real). Para la API real, setear
+      # COLSUBSIDIO_API_URL en .env — p.ej. COLSUBSIDIO_API_URL=http://147.93.11.136:9000
+      - COLSUBSIDIO_API_URL=${COLSUBSIDIO_API_URL:-http://mock-protege:9000}
+    depends_on:
+      - mock-protege
     expose:
       - "3000"
+    restart: unless-stopped
+
+  # Mock local de la Colsubsidio Protege API (mismo contrato OpenAPI 0.1.0;
+  # catálogo real capturado el 2026-07-24). El resto del sistema no sabe que
+  # es un mock. Catálogo consultable desde el host: localhost:9000/api/v1/products
+  mock-protege:
+    build: ./mock-protege
+    ports:
+      - "9000:9000"
     restart: unless-stopped
 
   nginx:

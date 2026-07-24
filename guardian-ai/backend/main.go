@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gofiber/contrib/websocket"
@@ -10,6 +12,31 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
 )
+
+// hookSnapshot is the lock-free, JSON-serializable view of the last webhook.
+type hookSnapshot struct {
+	At     string `json:"at"`
+	Event  string `json:"event"`
+	Status int    `json:"status"`
+	Debug  string `json:"debug"`
+}
+
+// hookDiag tracks the last Kapso webhook delivery for /api/whatsapp/debug.
+type hookDiag struct {
+	mu   sync.Mutex
+	snap hookSnapshot
+}
+
+func (h *hookDiag) set(event string, status int, debug string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.snap = hookSnapshot{At: time.Now().UTC().Format(time.RFC3339), Event: event, Status: status, Debug: debug}
+}
+
+// get returns a copy of the snapshot (no mutex copied — safe to return by value).
+func (h *hookDiag) get() hookSnapshot { h.mu.Lock(); defer h.mu.Unlock(); return h.snap }
+
+var lastHook = &hookDiag{}
 
 func main() {
 	bus := NewEventBus()
@@ -61,6 +88,46 @@ func main() {
 		log.Printf("vapi telephony enabled")
 	}
 
+	// WhatsApp text channel (Kapso — Meta Cloud API proxy). Same graceful
+	// degradation as voice/vapi: without credentials the demo runs offline via
+	// /api/whatsapp/simulate-inbound and replies stream to the UI over /ws.
+	wa := NewKapsoAdapter()
+	sessions := NewWhatsAppSessions()
+	if wa.Enabled() {
+		log.Printf("whatsapp (kapso) enabled")
+		if os.Getenv("KAPSO_WEBHOOK_SECRET") == "" {
+			log.Printf("SECURITY WARNING: KAPSO_WEBHOOK_SECRET unset — the /api/whatsapp/webhook endpoint accepts UNVERIFIED requests. Set it in production so inbound webhooks are HMAC-checked.")
+		}
+	}
+
+	// Colsubsidio Protege API — server-side conversation + recommendation engine
+	// that the WhatsApp channel drives. When configured it is the brain; without
+	// it the WhatsApp routes fall back to the local GPT-4o engine.
+	protegeAPI := NewColsubsidioClient()
+	protege := NewProtegeEngine(bus, protegeAPI, sessions)
+	if protege.Enabled() {
+		log.Printf("colsubsidio protege api enabled (whatsapp brain)")
+	}
+	// Delivery consumer (bus -> Kapso), per RA-002. Every MESSAGE_SENT is sent to
+	// the customer's phone; in demo mode (no creds) it is a no-op because the reply
+	// already reached the UI via the ws_hub subscriber.
+	bus.Subscribe(MESSAGE_SENT, func(ev Event) {
+		if !wa.Enabled() {
+			return
+		}
+		to := sessions.PhoneFor(ev.CallID)
+		if to == "" {
+			return
+		}
+		text, _ := ev.Payload["text"].(string)
+		if text == "" {
+			return
+		}
+		if _, err := wa.Send(context.Background(), to, text); err != nil {
+			log.Printf("whatsapp send failed (call=%s): %v", ev.CallID[:8], err)
+		}
+	})
+
 	app := fiber.New(fiber.Config{AppName: "Guardian AI"})
 	app.Use(cors.New())
 
@@ -84,7 +151,7 @@ func main() {
 			return fiber.NewError(503, "LLM engine not configured")
 		}
 		from := c.Query("from", "web-client")
-		return c.JSON(fiber.Map{"call_id": engine.Start(from), "status": "started"})
+		return c.JSON(fiber.Map{"call_id": engine.Start(from, "web"), "status": "started"})
 	})
 
 	// Send one user utterance into a real conversation.
@@ -116,6 +183,7 @@ func main() {
 		})
 		bus.Publish(id, CALL_ENDED, "conversation_engine", map[string]interface{}{"reason": "hangup"})
 		bus.Publish(id, STATE_CHANGED, "conversation_engine", map[string]interface{}{"from": "RESPONDING", "to": "ENDED"})
+		sessions.Close(id) // no-op for non-WhatsApp conversations
 		return c.JSON(fiber.Map{"status": "ended", "call_id": id})
 	})
 
@@ -143,6 +211,8 @@ func main() {
 	app.Get("/api/capabilities", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"llm": engine != nil, "elevenlabs": voice.Enabled(), "vapi": vapi.Enabled(),
+			"whatsapp":          wa.Enabled(),
+			"colsubsidio":       protegeAPI.Enabled(),
 			"vapi_web":          os.Getenv("VAPI_PUBLIC_KEY") != "" && os.Getenv("VAPI_ASSISTANT_ID") != "",
 			"vapi_public_key":   os.Getenv("VAPI_PUBLIC_KEY"),
 			"vapi_assistant_id": os.Getenv("VAPI_ASSISTANT_ID"),
@@ -199,6 +269,134 @@ func main() {
 			return fiber.NewError(502, err.Error())
 		}
 		return c.JSON(fiber.Map{"vapi_call_id": id, "status": "dialing"})
+	})
+
+	// ---- Chat / WhatsApp (text channel — variante del sistema autónomo) ----
+
+	// waInbound drives one inbound customer message through the shared LLM
+	// pipeline: resolve (or open) the session, then Turn. Used by both the offline
+	// simulate route and the real Kapso webhook.
+	waInbound := func(ctx context.Context, from, text string) (string, error) {
+		// Preferred: drive the Colsubsidio Protege API (guided flow + rules).
+		if protege.Enabled() {
+			convID, err := protege.HandleInbound(ctx, from, text)
+			if err != nil {
+				return convID, fiber.NewError(502, err.Error())
+			}
+			return convID, nil
+		}
+		// Fallback: local GPT-4o free-form engine.
+		if engine == nil {
+			return "", fiber.NewError(503, "LLM engine not configured")
+		}
+		convID, isNew := sessions.Resolve(from)
+		if isNew {
+			convID = engine.Start(from, "whatsapp")
+			sessions.Register(from, convID)
+		}
+		if err := engine.Turn(ctx, convID, text); err != nil {
+			return convID, fiber.NewError(502, err.Error())
+		}
+		return convID, nil
+	}
+
+	// Autonomous OUTBOUND contact: the system opens a WhatsApp conversation and
+	// sends the opener (fixed template — respects the 24h-window rule). Real
+	// delivery happens via the MESSAGE_SENT consumer when Kapso is configured.
+	app.Post("/api/chat/start", func(c *fiber.Ctx) error {
+		var in struct {
+			To      string `json:"to"`
+			Opening string `json:"opening"`
+		}
+		if err := c.BodyParser(&in); err != nil || in.To == "" {
+			return fiber.NewError(400, "to (E.164 phone) required")
+		}
+		// Preferred: open a Colsubsidio Protege conversation (user + first question).
+		if protege.Enabled() {
+			convID, err := protege.StartContact(c.Context(), in.To)
+			if err != nil {
+				return fiber.NewError(502, err.Error())
+			}
+			return c.JSON(fiber.Map{"conversation_id": convID, "status": "started"})
+		}
+		// Fallback: local GPT-4o engine with a fixed opener.
+		if engine == nil {
+			return fiber.NewError(503, "LLM engine not configured")
+		}
+		opening := in.Opening
+		if opening == "" {
+			opening = "Hola, soy Guardian AI, tu asesor de seguros de Colsubsidio. " +
+				"¿Te gustaría conocer una protección pensada para ti? 🛡️"
+		}
+		convID := engine.Start(in.To, "whatsapp")
+		sessions.Register(in.To, convID)
+		bus.Publish(convID, TRANSCRIPT_UPDATED, "whatsapp_adapter", map[string]interface{}{
+			"role": "agent", "text": opening, "is_final": true,
+		})
+		bus.Publish(convID, MESSAGE_SENT, "whatsapp_adapter", map[string]interface{}{
+			"text": opening, "channel": "whatsapp", "status": "queued", "to": in.To, "wa_message_id": "",
+		})
+		return c.JSON(fiber.Map{"conversation_id": convID, "status": "started"})
+	})
+
+	// DEMO offline: simulate an inbound customer message without a public webhook
+	// (analogous to /api/vapi/ingest). The reply streams to the UI over /ws.
+	app.Post("/api/whatsapp/simulate-inbound", func(c *fiber.Ctx) error {
+		var in struct {
+			From string `json:"from"`
+			Text string `json:"text"`
+		}
+		if err := c.BodyParser(&in); err != nil || in.From == "" || in.Text == "" {
+			return fiber.NewError(400, "from and text required")
+		}
+		convID, err := waInbound(c.Context(), in.From, in.Text)
+		if err != nil {
+			return err
+		}
+		return c.JSON(fiber.Map{"conversation_id": convID, "status": "ok"})
+	})
+
+	// REAL inbound from Kapso. Requires a public HTTPS URL (Kapso only delivers
+	// to HTTPS; we expose one via cloudflared). Kapso requires a 200 within 10s,
+	// so we ack immediately and process the conversation turn asynchronously
+	// (events stream to the UI over /ws; replies go out via the MESSAGE_SENT
+	// delivery consumer).
+	app.Post("/api/whatsapp/webhook", func(c *fiber.Ctx) error {
+		body := c.Body()
+		status, debug := processKapsoWebhook(body, c.Get("X-Webhook-Event"),
+			c.Get("X-Webhook-Signature"), os.Getenv("KAPSO_WEBHOOK_SECRET"),
+			func(from, text string) {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+					defer cancel()
+					if _, err := waInbound(ctx, from, text); err != nil {
+						log.Printf("whatsapp webhook turn failed: %v", err)
+					}
+				}()
+			})
+		lastHook.set(c.Get("X-Webhook-Event"), status, debug)
+		if status != 200 {
+			return fiber.NewError(status, debug)
+		}
+		return c.SendStatus(200)
+	})
+
+	// Debug/diagnostics for the WhatsApp wiring (demo + hackathon judges).
+	app.Get("/api/whatsapp/debug", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"enabled":           wa.Enabled(),
+			"phone_number_id":   os.Getenv("KAPSO_PHONE_NUMBER_ID") != "",
+			"signature_check":   os.Getenv("KAPSO_WEBHOOK_SECRET") != "",
+			"colsubsidio_brain": protege.Enabled(),
+			"live_sessions":     sessions.List(),
+			"last_webhook":      lastHook.get(),
+		})
+	})
+
+	// Live WhatsApp sessions — the UI re-attaches to an ongoing conversation
+	// after a reload (robust realtime).
+	app.Get("/api/whatsapp/sessions", func(c *fiber.Ctx) error {
+		return c.JSON(sessions.List())
 	})
 
 	// ---- Pipeline de Llamadas (post-call analytics, read-only) ----

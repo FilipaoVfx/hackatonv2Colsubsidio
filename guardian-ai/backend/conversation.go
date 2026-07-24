@@ -18,31 +18,57 @@ type ConversationEngine struct {
 
 	mu      sync.Mutex
 	history map[string][]oaMessage
+	channel map[string]string // call_id -> canal (web|whatsapp|...); default web
 }
 
 func NewConversationEngine(bus *EventBus, llm *LLMClient) *ConversationEngine {
-	return &ConversationEngine{bus: bus, llm: llm, history: make(map[string][]oaMessage)}
+	return &ConversationEngine{
+		bus:     bus,
+		llm:     llm,
+		history: make(map[string][]oaMessage),
+		channel: make(map[string]string),
+	}
 }
 
-// Start opens a new call and returns its id.
-func (e *ConversationEngine) Start(from string) string {
+// Start opens a new call/conversation and returns its id. `channel` selects the
+// I/O adapter semantics ("web" voz-navegador por defecto, "whatsapp" texto). El
+// pipeline LLM es idéntico en todos los canales — solo cambia la emisión de
+// entrada/salida (ver Turn).
+func (e *ConversationEngine) Start(from, channel string) string {
+	if channel == "" {
+		channel = "web"
+	}
 	callID := uuid.NewString()
 	e.bus.Publish(callID, CALL_STARTED, "telephony_adapter", map[string]interface{}{
-		"from": from, "channel": "web", "vapi_call_id": "web-" + callID[:8],
+		"from": from, "channel": channel, "vapi_call_id": "web-" + callID[:8],
 	})
 	e.state(callID, "CREATED", "CONNECTED")
 	e.state(callID, "CONNECTED", "DISCOVERY")
 	e.mu.Lock()
 	e.history[callID] = []oaMessage{}
+	e.channel[callID] = channel
 	e.mu.Unlock()
 	return callID
 }
 
-// Turn processes one user utterance and drives the full event sequence.
+// Turn processes one user utterance/message and drives the full event sequence.
+// The LLM pipeline (features, intent, tool, response, recommendation) is
+// channel-agnostic; only the inbound/outbound I/O events differ per channel.
 func (e *ConversationEngine) Turn(ctx context.Context, callID, text string) error {
-	e.bus.Publish(callID, USER_SPOKE, "telephony_adapter", map[string]interface{}{"is_final": true})
+	e.mu.Lock()
+	channel := e.channel[callID]
+	e.mu.Unlock()
+	if channel == "" {
+		channel = "web"
+	}
+
+	inType, inProducer := "USER_SPOKE", "telephony_adapter"
+	if channel == "whatsapp" {
+		inType, inProducer = MESSAGE_RECEIVED, "whatsapp_adapter"
+	}
+	e.bus.Publish(callID, inType, inProducer, map[string]interface{}{"is_final": true})
 	e.state(callID, "DISCOVERY", "LISTENING")
-	e.bus.Publish(callID, TRANSCRIPT_UPDATED, "telephony_adapter", map[string]interface{}{
+	e.bus.Publish(callID, TRANSCRIPT_UPDATED, inProducer, map[string]interface{}{
 		"role": "user", "text": text, "is_final": true,
 	})
 
@@ -112,14 +138,14 @@ func (e *ConversationEngine) Turn(ctx context.Context, callID, text string) erro
 		})
 	}
 
-	// Voice out. ElevenLabs (paid) would go here; the dashboard speaks the text
-	// via the browser Web Speech API as a no-cost stand-in.
-	e.bus.Publish(callID, VOICE_SENT, "voice_adapter", map[string]interface{}{
-		"text": d.Reply, "audio_ref": "browser://speech", "latency_ms": 0,
-		"voice_id": "web-speech-es",
-	})
+	// Reply out. The output event depends on the channel: voice channels emit
+	// VOICE_SENT (ElevenLabs / browser Web Speech), WhatsApp emits MESSAGE_SENT
+	// (delivered via Kapso by the bus consumer in main.go). Both channels always
+	// emit the agent TRANSCRIPT_UPDATED so the projector/analytics stay identical.
+	outType, outProducer, outPayload := replyEvent(channel, d.Reply)
+	e.bus.Publish(callID, outType, outProducer, outPayload)
 	e.state(callID, "RESPONDING", "LISTENING")
-	e.bus.Publish(callID, TRANSCRIPT_UPDATED, "voice_adapter", map[string]interface{}{
+	e.bus.Publish(callID, TRANSCRIPT_UPDATED, outProducer, map[string]interface{}{
 		"role": "agent", "text": d.Reply, "is_final": true,
 	})
 
@@ -131,6 +157,23 @@ func (e *ConversationEngine) Turn(ctx context.Context, callID, text string) erro
 
 func (e *ConversationEngine) state(callID, from, to string) {
 	e.bus.Publish(callID, STATE_CHANGED, "conversation_engine", map[string]interface{}{"from": from, "to": to})
+}
+
+// replyEvent maps a channel + reply text to the outbound event to publish. Pure
+// (no bus, no state) so the channel→event routing is unit-testable without the
+// LLM. WhatsApp emits MESSAGE_SENT (status queued; the bus consumer sends it via
+// Kapso); every other channel keeps the existing VOICE_SENT behaviour.
+func replyEvent(channel, reply string) (eventType, producer string, payload map[string]interface{}) {
+	if channel == "whatsapp" {
+		return MESSAGE_SENT, "whatsapp_adapter", map[string]interface{}{
+			"text": reply, "channel": "whatsapp", "status": "queued",
+			"wa_message_id": "", "to": "",
+		}
+	}
+	return VOICE_SENT, "voice_adapter", map[string]interface{}{
+		"text": reply, "audio_ref": "browser://speech", "latency_ms": 0,
+		"voice_id": "web-speech-es",
+	}
 }
 
 // runTool is the mock Tool Engine catalog. Phase 2 swaps this for a real

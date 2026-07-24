@@ -1,3 +1,6 @@
 backend/go.sum
 *.log
 .env
+
+# compiled Go binary (build artifact, never version)
+backend/guardianai

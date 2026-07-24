@@ -56,6 +56,39 @@ func fullCall() []Event {
 	}
 }
 
+// ---------- channel-agnostic analytics ----------
+
+// The projector must derive WhatsApp (text-channel) conversations with no schema
+// or code change — the channel is read straight from CALL_STARTED.
+func TestDeriveWhatsAppChannel(t *testing.T) {
+	log := []Event{
+		ev(0, 0, CALL_STARTED, p("from", "+57 310 123 4567", "channel", "whatsapp")),
+		ev(1, 1, STATE_CHANGED, p("from", "CREATED", "to", "DISCOVERY")),
+		ev(2, 2, TRANSCRIPT_UPDATED, p("role", "agent", "text", "Hola, soy Guardian AI.", "is_final", true)),
+		ev(3, 10, TRANSCRIPT_UPDATED, p("role", "user", "text", "Quiero un seguro para mi familia.", "is_final", true)),
+		ev(4, 11, FEATURE_UPDATED, p("key", "family_status", "value", "casado_2_hijos", "source", "transcript")),
+		ev(5, 20, INTENT_DETECTED, p("intent", "acceptance", "confidence", 0.95)),
+		ev(6, 22, TRANSCRIPT_UPDATED, p("role", "agent", "text", "Te recomiendo Vida Protección Familiar Plus.", "is_final", true)),
+		ev(7, 30, CALL_ENDED, p("reason", "hangup", "duration_ms", float64(30000))),
+	}
+	rec, err := Derive(log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Channel != "whatsapp" {
+		t.Errorf("channel = %q, want whatsapp", rec.Channel)
+	}
+	if rec.DurationSec != 30 {
+		t.Errorf("duration = %d, want 30", rec.DurationSec)
+	}
+	if len(rec.Transcript) != 3 {
+		t.Errorf("transcript lines = %d, want 3", len(rec.Transcript))
+	}
+	if len(rec.Phases) != 5 {
+		t.Errorf("phases = %d, want 5", len(rec.Phases))
+	}
+}
+
 // ---------- core behaviour ----------
 
 func TestDeriveFullCall(t *testing.T) {

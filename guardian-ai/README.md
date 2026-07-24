@@ -18,6 +18,9 @@ Endpoints:
 |--------|------|-------------|
 | GET  | `/api/health` | Healthcheck |
 | POST | `/api/calls/simulate` | Dispara una llamada E2E simulada |
+| POST | `/api/chat/start` | Contacto WhatsApp saliente autónomo |
+| POST | `/api/whatsapp/simulate-inbound` | Mensaje entrante WhatsApp (demo offline) |
+| POST | `/api/whatsapp/webhook` | Entrante real de Kapso (requiere HTTPS público) |
 | GET  | `/api/calls` | Lista call_ids |
 | GET  | `/api/calls/:id/events` | Replay del log de eventos (RN-003) |
 | WS   | `/ws` | Stream de eventos al dashboard (solo lectura, RN-004) |
@@ -87,3 +90,15 @@ Langfuse (observabilidad), pgvector/RAG de productos, autenticación, multiagent
 
 ## Config
 `STEP_MS` (compose): ritmo de la simulación en ms (default 500). Bajar para demo más rápida.
+
+Canal WhatsApp (todo opcional — sin esto el chat corre en demo offline con fallback GPT-4o):
+- `KAPSO_API_KEY` / `KAPSO_PHONE_NUMBER_ID`: transporte real vía Kapso (Sandbox gratis: Add Test Number + código de 6 caracteres + webhook HTTPS por cloudflared a `/api/whatsapp/webhook`).
+- `COLSUBSIDIO_API_URL` (+ `COLSUBSIDIO_API_TOKEN` opcional): cerebro del canal WhatsApp (Colsubsidio Protege API — flujo guiado + recomendación por reglas).
+- Detalle completo en `../06_FEATURE_CHAT_WHATSAPP.md`. Chat: `http://localhost:8099/chat`.
+
+> **Nota (demo):** para efectos de la demo se usa un **mock local de la Colsubsidio Protege API**
+> (servicio `mock-protege` en docker-compose, `:9000`) debido a restricciones de acceso de red
+> sobre la API de integración. El mock implementa el mismo contrato OpenAPI 0.1.0 con el
+> catálogo real capturado el 2026-07-24, así que el resto del sistema no sabe que es un mock.
+> Cuando la API real sea alcanzable, basta setear `COLSUBSIDIO_API_URL=http://147.93.11.136:9000`
+> en `.env` y levantar de nuevo — sin tocar código.
