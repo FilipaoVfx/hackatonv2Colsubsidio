@@ -78,6 +78,16 @@ type CallRecord struct {
 	Transcript   []LineRec
 	Scores       []ScoreRec
 	Insights     []InsightRec
+
+	// Guardian observability (derived from LLM_RESPONSE / STATE_CHANGED /
+	// FEATURE_UPDATED / TOOL_CALLED in the event log).
+	LeadState         string
+	TokensIn          int
+	TokensOut         int
+	CostUSD           float64
+	AvgLLMLatencyMS   int
+	ToolCallsN        int
+	VariablesCaptured int
 }
 
 // ---------- derivation (pure) ----------
@@ -167,6 +177,10 @@ func Derive(events []Event) (*CallRecord, error) {
 		durationFromEv = -1
 		recProduct     string
 		recReason      string
+
+		llmCalls   int
+		llmLatSum  int
+		varKeys    = map[string]bool{}
 	)
 
 	at := func(ev Event) int {
@@ -225,9 +239,15 @@ func Derive(events []Event) (*CallRecord, error) {
 			case "sentiment":
 				sentiment = normalizeSentiment(v)
 			default:
-				if profileKeys[k] && v != "" && v != "<nil>" {
-					rec.Profile[k] = v
-					featureCount++
+				if v != "" && v != "<nil>" {
+					varKeys[k] = true
+					if profileKeys[k] || len(rec.Profile) < 12 {
+						// perfil clásico + variables Guardian (cap para no inflar la fila)
+						rec.Profile[k] = v
+					}
+					if profileKeys[k] {
+						featureCount++
+					}
 				}
 			}
 
@@ -254,11 +274,41 @@ func Derive(events []Event) (*CallRecord, error) {
 				recReason = s
 			}
 
+		case LLM_RESPONSE:
+			if n, ok := toFloat(ev.Payload["tokens_in"]); ok {
+				rec.TokensIn += int(n)
+			}
+			if n, ok := toFloat(ev.Payload["tokens_out"]); ok {
+				rec.TokensOut += int(n)
+			}
+			if n, ok := toFloat(ev.Payload["cost_usd"]); ok {
+				rec.CostUSD += n
+			}
+			if n, ok := toFloat(ev.Payload["latency_ms"]); ok {
+				llmCalls++
+				llmLatSum += int(n)
+			}
+
+		case STATE_CHANGED:
+			// Solo estados del lead (Guardian); los operativos (LISTENING...) se ignoran.
+			if to, ok := ev.Payload["to"].(string); ok {
+				switch LeadState(to) {
+				case StateNew, StateAffiliation, StateProfile, StateFinancial,
+					StateMatching, StateReady, StateNurturing, StateCompleted:
+					rec.LeadState = to
+				}
+			}
+
 		case CALL_ENDED:
 			if ms, ok := toFloat(ev.Payload["duration_ms"]); ok && ms > 0 {
 				durationFromEv = int(ms / 1000)
 			}
 		}
+	}
+	rec.ToolCallsN = toolCount
+	rec.VariablesCaptured = len(varKeys)
+	if llmCalls > 0 {
+		rec.AvgLLMLatencyMS = llmLatSum / llmCalls
 	}
 
 	// Duration: prefer the explicit value, else wall time, never negative.
@@ -715,15 +765,22 @@ func (p *Projector) Save(ctx context.Context, rec *CallRecord) error {
 	_, err = tx.Exec(ctx, `
 		insert into public.call_analytics
 		  (call_id, call_code, customer_id, advisor_name, advisor_voice, channel, outcome,
-		   started_at, duration_sec, score_overall, score_label, recording_url)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,null)
+		   started_at, duration_sec, score_overall, score_label, recording_url,
+		   lead_state, tokens_in, tokens_out, cost_usd, avg_llm_latency_ms, tool_calls, variables_captured)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,null,$12,$13,$14,$15,$16,$17,$18)
 		on conflict (call_id) do update set
 		  call_code=excluded.call_code, customer_id=excluded.customer_id,
 		  channel=excluded.channel, outcome=excluded.outcome,
 		  started_at=excluded.started_at, duration_sec=excluded.duration_sec,
-		  score_overall=excluded.score_overall, score_label=excluded.score_label`,
+		  score_overall=excluded.score_overall, score_label=excluded.score_label,
+		  lead_state=excluded.lead_state, tokens_in=excluded.tokens_in,
+		  tokens_out=excluded.tokens_out, cost_usd=excluded.cost_usd,
+		  avg_llm_latency_ms=excluded.avg_llm_latency_ms, tool_calls=excluded.tool_calls,
+		  variables_captured=excluded.variables_captured`,
 		rec.CallID, rec.CallCode, customerID, rec.AdvisorName, rec.AdvisorVoice,
-		rec.Channel, rec.Outcome, rec.StartedAt, rec.DurationSec, rec.ScoreOverall, rec.ScoreLabel)
+		rec.Channel, rec.Outcome, rec.StartedAt, rec.DurationSec, rec.ScoreOverall, rec.ScoreLabel,
+		rec.LeadState, rec.TokensIn, rec.TokensOut, rec.CostUSD, rec.AvgLLMLatencyMS,
+		rec.ToolCallsN, rec.VariablesCaptured)
 	if err != nil {
 		return fmt.Errorf("call_analytics: %w", err)
 	}

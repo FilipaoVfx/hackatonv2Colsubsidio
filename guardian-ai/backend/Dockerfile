@@ -9,6 +9,8 @@ RUN go mod tidy && CGO_ENABLED=0 go build -o /guardian .
 FROM alpine:3.20
 RUN adduser -D -u 10001 app
 COPY --from=build /guardian /guardian
+COPY knowledge/ /knowledge/
+ENV KNOWLEDGE_DIR=/knowledge
 USER app
 EXPOSE 3000
 ENTRYPOINT ["/guardian"]

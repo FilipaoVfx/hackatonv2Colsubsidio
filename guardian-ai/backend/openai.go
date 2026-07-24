@@ -142,3 +142,169 @@ func (c *LLMClient) Decide(ctx context.Context, history []oaMessage) (*Decision,
 	d.LatencyMS = time.Since(start).Milliseconds()
 	return &d, nil
 }
+
+// ---- Guardian Conversation Engine (spec retrieval.md §8: Structured Outputs) ----
+
+// GuardianEntity is one confirmed fact extracted from the customer's message.
+// (json_schema strict forbids free-form objects, so entities is an array.)
+type GuardianEntity struct {
+	Key        string      `json:"key"`
+	Value      interface{} `json:"value"`
+	Confidence float64     `json:"confidence"`
+}
+
+// GuardianDecision is the ONLY shape the Guardian LLM may answer with.
+type GuardianDecision struct {
+	Intent           string           `json:"intent"`
+	Entities         []GuardianEntity `json:"entities"`
+	Confidence       float64          `json:"confidence"`
+	NextAction       string           `json:"next_action"`
+	AssistantMessage string           `json:"assistant_message"`
+
+	// telemetry (filled from usage)
+	TokensIn  int     `json:"-"`
+	TokensOut int     `json:"-"`
+	CostUSD   float64 `json:"-"`
+	LatencyMS int64   `json:"-"`
+}
+
+// GuardianLLM is the seam the engine depends on — tests inject a scripted LLM.
+type GuardianLLM interface {
+	DecideGuardian(ctx context.Context, system string, history []oaMessage) (*GuardianDecision, error)
+}
+
+// guardianSchema is the strict JSON Schema enforced server-side by OpenAI
+// (response_format json_schema). The model CANNOT answer anything else —
+// "nunca parsear texto libre".
+var guardianSchema = map[string]interface{}{
+	"type":                 "object",
+	"additionalProperties": false,
+	"required":             []string{"intent", "entities", "confidence", "next_action", "assistant_message"},
+	"properties": map[string]interface{}{
+		"intent":     map[string]interface{}{"type": "string"},
+		"confidence": map[string]interface{}{"type": "number"},
+		"next_action": map[string]interface{}{
+			"type": "string",
+			"enum": []string{ActionAsk, ActionAnswer, ActionRecommend, ActionHandoff, ActionClose},
+		},
+		"assistant_message": map[string]interface{}{"type": "string"},
+		"entities": map[string]interface{}{
+			"type": "array",
+			"items": map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"key", "value", "confidence"},
+				"properties": map[string]interface{}{
+					"key":        map[string]interface{}{"type": "string"},
+					"value":      map[string]interface{}{"type": []string{"string", "number", "boolean"}},
+					"confidence": map[string]interface{}{"type": "number"},
+				},
+			},
+		},
+	},
+}
+
+// DecideGuardian runs one Guardian turn with strict structured outputs. The
+// system prompt is built per turn by the Prompt Builder (modular, never global).
+func (c *LLMClient) DecideGuardian(ctx context.Context, system string, history []oaMessage) (*GuardianDecision, error) {
+	body := map[string]interface{}{
+		"model":       model,
+		"temperature": 0.5,
+		"response_format": map[string]interface{}{
+			"type": "json_schema",
+			"json_schema": map[string]interface{}{
+				"name":   "guardian_turn",
+				"strict": true,
+				"schema": guardianSchema,
+			},
+		},
+		"messages": append([]oaMessage{{Role: "system", Content: system}}, history...),
+	}
+	raw, _ := json.Marshal(body)
+	req, _ := http.NewRequestWithContext(ctx, "POST", openAIURL, bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+c.key)
+	req.Header.Set("Content-Type", "application/json")
+
+	start := time.Now()
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Choices []struct {
+			Message oaMessage `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Error != nil {
+		return nil, fmt.Errorf("openai: %s", out.Error.Message)
+	}
+	if len(out.Choices) == 0 {
+		return nil, fmt.Errorf("openai: empty response")
+	}
+
+	var d GuardianDecision
+	if err := json.Unmarshal([]byte(out.Choices[0].Message.Content), &d); err != nil {
+		return nil, fmt.Errorf("parse guardian decision: %w (content=%s)", err, out.Choices[0].Message.Content)
+	}
+	d.TokensIn = out.Usage.PromptTokens
+	d.TokensOut = out.Usage.CompletionTokens
+	d.CostUSD = float64(d.TokensIn)*priceInPerTok + float64(d.TokensOut)*priceOutPerTok
+	d.LatencyMS = time.Since(start).Milliseconds()
+	return &d, nil
+}
+
+// ---- embeddings (RAG, spec §9: documentation only) ----
+
+const (
+	openAIEmbedURL = "https://api.openai.com/v1/embeddings"
+	embedModel     = "text-embedding-3-small"
+)
+
+// Embed returns one vector per input text (batch, single request).
+func (c *LLMClient) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if c.key == "" {
+		return nil, fmt.Errorf("no OPENAI_API_KEY")
+	}
+	raw, _ := json.Marshal(map[string]interface{}{"model": embedModel, "input": texts})
+	req, _ := http.NewRequestWithContext(ctx, "POST", openAIEmbedURL, bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+c.key)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Error != nil {
+		return nil, fmt.Errorf("openai embeddings: %s", out.Error.Message)
+	}
+	vecs := make([][]float32, len(out.Data))
+	for i, d := range out.Data {
+		vecs[i] = d.Embedding
+	}
+	return vecs, nil
+}

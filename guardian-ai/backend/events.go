@@ -24,6 +24,9 @@ const (
 	VOICE_SENT               = "VOICE_SENT"
 	MESSAGE_RECEIVED         = "MESSAGE_RECEIVED" // chat/WhatsApp: análogo de USER_SPOKE
 	MESSAGE_SENT             = "MESSAGE_SENT"     // chat/WhatsApp: análogo de VOICE_SENT
+	LEAD_READY               = "LEAD_READY"       // Guardian: lead perfilado listo para asesor
+	KNOWLEDGE_RETRIEVED      = "KNOWLEDGE_RETRIEVED" // Guardian: RAG documental consultado
+	TURN_COMPLETED           = "TURN_COMPLETED"   // Guardian: observabilidad por mensaje (spec §11)
 	SUMMARY_GENERATED        = "SUMMARY_GENERATED"
 	ERROR_OCCURRED           = "ERROR_OCCURRED"
 )

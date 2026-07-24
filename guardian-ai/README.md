@@ -94,7 +94,8 @@ Langfuse (observabilidad), pgvector/RAG de productos, autenticación, multiagent
 Canal WhatsApp (todo opcional — sin esto el chat corre en demo offline con fallback GPT-4o):
 - `KAPSO_API_KEY` / `KAPSO_PHONE_NUMBER_ID`: transporte real vía Kapso (Sandbox gratis: Add Test Number + código de 6 caracteres + webhook HTTPS por cloudflared a `/api/whatsapp/webhook`).
 - `COLSUBSIDIO_API_URL` (+ `COLSUBSIDIO_API_TOKEN` opcional): cerebro del canal WhatsApp (Colsubsidio Protege API — flujo guiado + recomendación por reglas).
-- Detalle completo en `../06_FEATURE_CHAT_WHATSAPP.md`. Chat: `http://localhost:8099/chat`.
+- **Guardian Conversation Engine** (preferido; requiere `COLSUBSIDIO_API_URL` + `OPENAI_API_KEY`): motor conversacional con state machine comercial, structured outputs, tool calling registrado, memoria desde la API y RAG documental. `GUARDIAN_DISABLED=1` fuerza el fallback; `KNOWLEDGE_DIR` reubica el corpus RAG. Ver `../07_FEATURE_GUARDIAN_CONVERSATION_ENGINE.md`.
+- Detalle del canal en `../06_FEATURE_CHAT_WHATSAPP.md`. Chat: `http://localhost:8099/chat`.
 
 > **Nota (demo):** para efectos de la demo se usa un **mock local de la Colsubsidio Protege API**
 > (servicio `mock-protege` en docker-compose, `:9000`) debido a restricciones de acceso de red

@@ -108,6 +108,16 @@ func main() {
 	if protege.Enabled() {
 		log.Printf("colsubsidio protege api enabled (whatsapp brain)")
 	}
+
+	// Guardian Conversation Engine (spec retrieval.md): the preferred WhatsApp
+	// brain. Needs BOTH the Protege API (decisions) and the LLM (language).
+	// GUARDIAN_DISABLED=1 forces the fallback chain for live comparison.
+	var guardian *GuardianEngine
+	if protegeAPI.Enabled() && os.Getenv("OPENAI_API_KEY") != "" && os.Getenv("GUARDIAN_DISABLED") == "" {
+		rag := NewRAG(knowledgeDir(), NewLLMClient())
+		guardian = NewGuardianEngine(bus, protegeAPI, NewLLMClient(), NewTools(protegeAPI, bus), sessions, rag)
+		log.Printf("guardian conversation engine enabled (whatsapp brain, rag=%s)", rag.Mode())
+	}
 	// Delivery consumer (bus -> Kapso), per RA-002. Every MESSAGE_SENT is sent to
 	// the customer's phone; in demo mode (no creds) it is a no-op because the reply
 	// already reached the UI via the ws_hub subscriber.
@@ -213,6 +223,7 @@ func main() {
 			"llm": engine != nil, "elevenlabs": voice.Enabled(), "vapi": vapi.Enabled(),
 			"whatsapp":          wa.Enabled(),
 			"colsubsidio":       protegeAPI.Enabled(),
+			"guardian":          guardian.Enabled(),
 			"vapi_web":          os.Getenv("VAPI_PUBLIC_KEY") != "" && os.Getenv("VAPI_ASSISTANT_ID") != "",
 			"vapi_public_key":   os.Getenv("VAPI_PUBLIC_KEY"),
 			"vapi_assistant_id": os.Getenv("VAPI_ASSISTANT_ID"),
@@ -277,7 +288,15 @@ func main() {
 	// pipeline: resolve (or open) the session, then Turn. Used by both the offline
 	// simulate route and the real Kapso webhook.
 	waInbound := func(ctx context.Context, from, text string) (string, error) {
-		// Preferred: drive the Colsubsidio Protege API (guided flow + rules).
+		// Preferred: Guardian Conversation Engine (LLM entiende, API decide).
+		if guardian.Enabled() {
+			convID, err := guardian.HandleInbound(ctx, from, text)
+			if err != nil {
+				return convID, fiber.NewError(502, err.Error())
+			}
+			return convID, nil
+		}
+		// Fallback 1: rigid Protege question flow (API only, no LLM).
 		if protege.Enabled() {
 			convID, err := protege.HandleInbound(ctx, from, text)
 			if err != nil {
@@ -311,7 +330,15 @@ func main() {
 		if err := c.BodyParser(&in); err != nil || in.To == "" {
 			return fiber.NewError(400, "to (E.164 phone) required")
 		}
-		// Preferred: open a Colsubsidio Protege conversation (user + first question).
+		// Preferred: Guardian engine opens the conversation with its opener.
+		if guardian.Enabled() {
+			convID, err := guardian.StartContact(c.Context(), in.To)
+			if err != nil {
+				return fiber.NewError(502, err.Error())
+			}
+			return c.JSON(fiber.Map{"conversation_id": convID, "status": "started", "engine": "guardian"})
+		}
+		// Fallback 1: rigid Protege question flow.
 		if protege.Enabled() {
 			convID, err := protege.StartContact(c.Context(), in.To)
 			if err != nil {
@@ -387,6 +414,7 @@ func main() {
 			"enabled":           wa.Enabled(),
 			"phone_number_id":   os.Getenv("KAPSO_PHONE_NUMBER_ID") != "",
 			"signature_check":   os.Getenv("KAPSO_WEBHOOK_SECRET") != "",
+			"guardian":          guardian.Enabled(),
 			"colsubsidio_brain": protege.Enabled(),
 			"live_sessions":     sessions.List(),
 			"last_webhook":      lastHook.get(),
@@ -409,6 +437,18 @@ func main() {
 			return fiber.NewError(500, err.Error())
 		}
 		return c.JSON(list)
+	})
+
+	// Guardian KPIs (spec §12 subset): funnel + costos agregados.
+	app.Get("/api/analytics/kpis", func(c *fiber.Ctx) error {
+		if analytics == nil {
+			return fiber.NewError(503, "analytics requires supabase")
+		}
+		kpis, err := analytics.KPIs(c.Context())
+		if err != nil {
+			return fiber.NewError(502, err.Error())
+		}
+		return c.JSON(kpis)
 	})
 
 	app.Get("/api/analytics/calls/:id", func(c *fiber.Ctx) error {

@@ -70,6 +70,30 @@
     .btn-danger { background: #fee2e2; color: #b91c1c; padding: 9px 14px; }
     .btn-theme { font-size: 15px; padding: 7px 10px; }
 
+    /* --- stepper de estados del lead (Guardian) --- */
+    .lead-steps { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 10px; }
+    .lead-step { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 4px 9px;
+      border-radius: 999px; background: var(--ev-bg); color: var(--muted); border: 1px solid var(--ev-line);
+      transition: all .25s; }
+    .lead-step.done { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .lead-step.now { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; animation: pulse 1.6s infinite; }
+    body.dark .lead-step.done { background: #14351f; color: #4ade80; border-color: #1d4a2c; }
+    body.dark .lead-step.now { background: #16283f; color: #60a5fa; border-color: #1e3a5f; }
+
+    /* --- perfil capturado en vivo --- */
+    .profile-card { background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 14px; margin-bottom: 14px; }
+    .profile-rows { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .profile-rows.empty { color: var(--muted); }
+    .profile-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px;
+      border-radius: 6px; background: var(--ev-bg); animation: slidein .25s ease-out; }
+    .profile-row .k { color: var(--muted); }
+    .profile-row .v { font-weight: 600; word-break: break-word; text-align: right; }
+
+    /* --- tarjeta lead listo --- */
+    .lead-ready { background: linear-gradient(135deg,#16a34a,#15803d); color: #fff; border-radius: 12px;
+      padding: 14px 16px; margin-top: 10px; animation: pop .3s ease-out; font-size: 13px; }
+    .lead-ready b { display: block; font-size: 14px; margin-bottom: 4px; }
+
     /* --- panel de eventos en vivo --- */
     .ev-card { background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 14px; }
     .ev-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -153,8 +177,17 @@
           <button class="btn-danger" id="waEnd" disabled>Finalizar</button>
         </div>
 
+        <div class="lead-steps" id="leadSteps" style="display:none">
+          <span class="lead-step" data-st="AFFILIATION_CHECK">Identificación</span>
+          <span class="lead-step" data-st="PROFILE_DISCOVERY">Perfilamiento</span>
+          <span class="lead-step" data-st="FINANCIAL_QUALIFICATION">Calificación</span>
+          <span class="lead-step" data-st="PROJECT_MATCHING">Recomendación</span>
+          <span class="lead-step" data-st="READY_FOR_ADVISOR">Lead listo</span>
+          <span class="lead-step" data-st="NURTURING">Nutrición</span>
+        </div>
+
         <div class="wa-thread empty" id="waThread">
-          Inicia un contacto para abrir la conversación de WhatsApp.
+          Escuchando WhatsApp en vivo. Inicia un contacto — o deja que un cliente escriba por WhatsApp real — y la conversación aparecerá aquí automáticamente.
         </div>
 
         <div class="wa-compose">
@@ -170,12 +203,20 @@
         </p>
       </div>
 
-      <aside class="ev-card">
-        <div class="ev-head">
-          <span class="ev-title">Actividad en vivo</span>
-          <span class="ev-live" id="evLive" style="display:none">EN VIVO</span>
+      <aside>
+        <div class="profile-card">
+          <div class="ev-head">
+            <span class="ev-title">Perfil capturado</span>
+          </div>
+          <div class="profile-rows empty" id="profileRows">Las variables confirmadas del cliente aparecerán aquí al instante.</div>
         </div>
-        <div class="ev-feed empty" id="evFeed">Los eventos de la conversación aparecerán aquí en tiempo real.</div>
+        <div class="ev-card">
+          <div class="ev-head">
+            <span class="ev-title">Actividad en vivo</span>
+            <span class="ev-live" id="evLive" style="display:none">EN VIVO</span>
+          </div>
+          <div class="ev-feed empty" id="evFeed">Los eventos de la conversación aparecerán aquí en tiempo real.</div>
+        </div>
       </aside>
     </section>
   </main>

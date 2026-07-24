@@ -288,6 +288,48 @@ canales, por lo que el proyector y la analítica no cambian. Ver `06_FEATURE_CHA
 
 ---
 
+### 4.7c Guardian Conversation Engine (lead comercial)
+
+Eventos del motor conversacional Guardian (ver `07_FEATURE_GUARDIAN_CONVERSATION_ENGINE.md`).
+El lead recorre una máquina de estados comercial propia
+(`NEW → AFFILIATION_CHECK → PROFILE_DISCOVERY → FINANCIAL_QUALIFICATION →
+PROJECT_MATCHING → READY_FOR_ADVISOR | NURTURING → COMPLETED`) emitida por
+`STATE_CHANGED` con producer `guardian_engine`; cada transición queda registrada.
+
+#### `LEAD_READY`
+- **Disparador:** el lead queda perfilado, calificado y acepta contacto de asesor (`READY_FOR_ADVISOR`).
+- **Producer:** `guardian_engine`
+- **Consumers:** `persistence`, `ws_hub` (tarjeta "Lead listo" en /chat)
+- **Payload:**
+```json
+{ "user_id": "uuid", "phone": "string", "variables": {}, "recommendations": [], "summary": "string" }
+```
+
+#### `KNOWLEDGE_RETRIEVED`
+- **Disparador:** el motor consulta el corpus documental (RAG) para responder una pregunta informativa.
+- **Producer:** `guardian_engine`
+- **Consumers:** `persistence`, `ws_hub`
+- **Regla:** el contexto recuperado se usa SOLO para explicar; nunca para decidir elegibilidad ni scoring.
+- **Payload:**
+```json
+{ "query": "string", "chunks": [{ "doc": "faq.md", "heading": "string" }], "mode": "embeddings|keyword" }
+```
+
+#### `TURN_COMPLETED`
+- **Disparador:** fin del procesamiento de un mensaje entrante (observabilidad por mensaje, spec §11).
+- **Producer:** `guardian_engine`
+- **Consumers:** `persistence` (base de KPIs), `ws_hub`
+- **Payload:**
+```json
+{
+  "conversation_id": "uuid", "user_id": "uuid", "state": "PROFILE_DISCOVERY",
+  "intent": "string", "confidence": 0.0, "latency_ms_total": 0,
+  "tool_calls": ["get_variables", "save_variable"], "new_variables": ["has_pet"], "error": null
+}
+```
+
+---
+
 ### 4.8 Cierre
 
 #### `SUMMARY_GENERATED`

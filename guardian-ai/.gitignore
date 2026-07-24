@@ -4,3 +4,6 @@ backend/go.sum
 
 # compiled Go binary (build artifact, never version)
 backend/guardianai
+
+# compiled mock binary
+mock-protege/protegemock

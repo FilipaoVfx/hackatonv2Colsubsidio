@@ -41,8 +41,10 @@ async function loadList() {
       <td>${fmtDate(c.started_at)}</td>
       <td>${mmss(c.duration_sec)}</td>
       <td>${channelLabel(c.channel, false)}</td>
-      <td><span class="badge-outcome ${OUTCOME_CLASS[c.outcome] ?? "info"}">${c.outcome}</span></td>
-      <td class="score-pill ${cls}">${c.score_overall}</td>`;
+      <td><span class="badge-outcome ${OUTCOME_CLASS[c.outcome] ?? "info"}">${c.outcome}</span>
+        ${c.lead_state ? `<div class="muted" style="font-size:10px;margin-top:2px">${c.lead_state}</div>` : ""}</td>
+      <td class="score-pill ${cls}">${c.score_overall}
+        ${c.cost_usd ? `<div class="muted" style="font-size:10px">$${c.cost_usd.toFixed(4)} · ${(c.tokens_in || 0) + (c.tokens_out || 0)} tok</div>` : ""}</td>`;
     tr.addEventListener("click", () => openDetail(i));
     $("callsBody").appendChild(tr);
   });

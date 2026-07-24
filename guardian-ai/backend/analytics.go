@@ -26,6 +26,11 @@ type CallListItem struct {
 	Score      int    `json:"score_overall"`
 	ScoreLabel string `json:"score_label"`
 	Advisor    string `json:"advisor_name"`
+
+	LeadState string  `json:"lead_state"`
+	TokensIn  int     `json:"tokens_in"`
+	TokensOut int     `json:"tokens_out"`
+	CostUSD   float64 `json:"cost_usd"`
 }
 
 func (a *Analytics) List(ctx context.Context) ([]CallListItem, error) {
@@ -33,7 +38,9 @@ func (a *Analytics) List(ctx context.Context) ([]CallListItem, error) {
 		select ca.call_id::text, coalesce(ca.call_code,''), c.full_name, coalesce(c.phone,''),
 		       to_char(ca.started_at at time zone 'America/Bogota','YYYY-MM-DD"T"HH24:MI:SS'), coalesce(ca.duration_sec,0),
 		       coalesce(ca.channel,''), coalesce(ca.outcome,''), coalesce(ca.score_overall,0),
-		       coalesce(ca.score_label,''), coalesce(ca.advisor_name,'')
+		       coalesce(ca.score_label,''), coalesce(ca.advisor_name,''),
+		       coalesce(ca.lead_state,''), coalesce(ca.tokens_in,0), coalesce(ca.tokens_out,0),
+		       coalesce(ca.cost_usd,0)
 		from public.call_analytics ca
 		join public.customers c using (customer_id)
 		order by ca.started_at desc`)
@@ -45,12 +52,41 @@ func (a *Analytics) List(ctx context.Context) ([]CallListItem, error) {
 	for rows.Next() {
 		var i CallListItem
 		if err := rows.Scan(&i.CallID, &i.CallCode, &i.Customer, &i.Phone, &i.StartedAt,
-			&i.DurationS, &i.Channel, &i.Outcome, &i.Score, &i.ScoreLabel, &i.Advisor); err != nil {
+			&i.DurationS, &i.Channel, &i.Outcome, &i.Score, &i.ScoreLabel, &i.Advisor,
+			&i.LeadState, &i.TokensIn, &i.TokensOut, &i.CostUSD); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
 	}
 	return out, rows.Err()
+}
+
+// KPIs returns the basic Guardian funnel aggregates (spec §12 subset).
+func (a *Analytics) KPIs(ctx context.Context) (map[string]interface{}, error) {
+	row := a.pool.QueryRow(ctx, `
+		select count(*) filter (where channel='whatsapp'),
+		       count(*) filter (where lead_state in ('READY_FOR_ADVISOR','COMPLETED') and channel='whatsapp'),
+		       count(*) filter (where lead_state='NURTURING' and channel='whatsapp'),
+		       coalesce(sum(tool_calls),0), coalesce(sum(tokens_in),0), coalesce(sum(tokens_out),0),
+		       coalesce(sum(cost_usd),0), coalesce(avg(nullif(avg_llm_latency_ms,0)),0),
+		       coalesce(sum(variables_captured),0)
+		from public.call_analytics`)
+	var leads, ready, nurturing, toolCalls, tokIn, tokOut, varsCaptured int64
+	var cost, avgLat float64
+	if err := row.Scan(&leads, &ready, &nurturing, &toolCalls, &tokIn, &tokOut, &cost, &avgLat, &varsCaptured); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"leads_whatsapp":       leads,
+		"leads_ready":          ready,
+		"leads_nurturing":      nurturing,
+		"tool_calls":           toolCalls,
+		"tokens_in":            tokIn,
+		"tokens_out":           tokOut,
+		"cost_usd":             cost,
+		"avg_llm_latency_ms":   avgLat,
+		"variables_captured":   varsCaptured,
+	}, nil
 }
 
 // Detail returns the full record backing the Pipeline view.

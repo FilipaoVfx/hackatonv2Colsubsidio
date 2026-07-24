@@ -49,16 +49,69 @@ type ProtegeUser struct {
 	LastName       string `json:"last_name,omitempty"`
 }
 
-// ProtegeQuestion mirrors QuestionPublic: the next question the API wants asked.
+// ProtegeQuestion mirrors QuestionPublic (+ order_index/conditions from
+// QuestionRead, served by GET /questions): a question in the API's catalog.
 type ProtegeQuestion struct {
-	ID          string        `json:"id"`
-	VariableKey string        `json:"variable_key"`
-	Text        string        `json:"text"`
-	FieldType   string        `json:"field_type"` // text|number|currency|boolean|radio|select|multi_select|date|email|phone
-	Required    bool          `json:"required"`
-	HelpText    string        `json:"help_text"`
-	Placeholder string        `json:"placeholder"`
-	Options     []interface{} `json:"options"`
+	ID          string             `json:"id"`
+	VariableKey string             `json:"variable_key"`
+	Text        string             `json:"text"`
+	FieldType   string             `json:"field_type"` // text|number|currency|boolean|radio|select|multi_select|date|email|phone
+	Required    bool               `json:"required"`
+	OrderIndex  int                `json:"order_index"`
+	HelpText    string             `json:"help_text"`
+	Placeholder string             `json:"placeholder"`
+	Options     []interface{}      `json:"options"`
+	Conditions  []ProtegeCondition `json:"conditions"`
+}
+
+// ProtegeCondition mirrors QuestionConditionRead: the question only applies
+// when the referenced variable satisfies operator vs expected_value.
+type ProtegeCondition struct {
+	DependsOnVariableKey string      `json:"depends_on_variable_key"`
+	Operator             string      `json:"operator"` // ConditionOperator enum
+	ExpectedValue        interface{} `json:"expected_value"`
+}
+
+// VariableValue mirrors VariableValueInput (PUT /users/{id}/variables): a
+// profile fact confirmed during the conversation, persisted immediately.
+type VariableValue struct {
+	Key        string      `json:"key"`
+	Value      interface{} `json:"value"`
+	Source     string      `json:"source,omitempty"`
+	Confidence *float64    `json:"confidence,omitempty"`
+}
+
+// UserVariable mirrors UserVariableRead: the API-side stored profile variable.
+type UserVariable struct {
+	Key        string      `json:"key"`
+	Value      interface{} `json:"value"`
+	Source     string      `json:"source"`
+	Confidence *float64    `json:"confidence"`
+}
+
+// ProtegeRule mirrors RuleRead: one weighted business rule of the recommender.
+type ProtegeRule struct {
+	ID            string      `json:"id"`
+	ProductID     string      `json:"product_id"`
+	Name          string      `json:"name"`
+	VariableKey   string      `json:"variable_key"`
+	Operator      string      `json:"operator"`
+	ExpectedValue interface{} `json:"expected_value"`
+	Weight        float64     `json:"weight"`
+	Reason        string      `json:"reason"`
+	Active        bool        `json:"active"`
+}
+
+// ProtegeProduct mirrors ProductRead: catalog entry used to ground the LLM.
+type ProtegeProduct struct {
+	ID          string                 `json:"id"`
+	Code        string                 `json:"code"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Category    string                 `json:"category"`
+	Active      bool                   `json:"active"`
+	BasePrice   float64                `json:"base_price"`
+	Metadata    map[string]interface{} `json:"metadata_json"`
 }
 
 // ProtegeConversation covers the shared fields of ConversationRead and
@@ -200,4 +253,76 @@ func (c *ColsubsidioClient) Complete(ctx context.Context, conversationID string,
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ---- Guardian Conversation Engine endpoints (spec retrieval.md) ----
+
+// SaveVariables persists confirmed profile facts IMMEDIATELY (spec: never wait
+// for the end of the conversation). Upsert batch; returns the stored state.
+func (c *ColsubsidioClient) SaveVariables(ctx context.Context, userID string, vars []VariableValue) ([]UserVariable, error) {
+	var out []UserVariable
+	if err := c.do(ctx, "PUT", "/api/v1/users/"+userID+"/variables", vars, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetVariables returns the user's stored profile variables. This is the ONLY
+// source of strategic memory: the engine rebuilds context from here each turn.
+func (c *ColsubsidioClient) GetVariables(ctx context.Context, userID string) ([]UserVariable, error) {
+	var out []UserVariable
+	if err := c.do(ctx, "GET", "/api/v1/users/"+userID+"/variables", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetQuestions lists the active question catalog. The engine uses it to know
+// which variables are still missing per lead state (guidance, not a form).
+func (c *ColsubsidioClient) GetQuestions(ctx context.Context) ([]ProtegeQuestion, error) {
+	var out []ProtegeQuestion
+	if err := c.do(ctx, "GET", "/api/v1/questions", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetRules lists the recommender's weighted rules (optionally per product).
+// Fed to the prompt as Business Rules so the LLM EXPLAINS them — never invents.
+func (c *ColsubsidioClient) GetRules(ctx context.Context, productID string) ([]ProtegeRule, error) {
+	path := "/api/v1/rules"
+	if productID != "" {
+		path += "?product_id=" + url.QueryEscape(productID)
+	}
+	var out []ProtegeRule
+	if err := c.do(ctx, "GET", path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetProducts lists the real catalog (grounds the prompt: no invented products).
+func (c *ColsubsidioClient) GetProducts(ctx context.Context) ([]ProtegeProduct, error) {
+	var out []ProtegeProduct
+	if err := c.do(ctx, "GET", "/api/v1/products", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GenerateRecommendations scores the user's CURRENT variables against the rules
+// (POST /recommendations/users/{id}) — recommendation from natural profiling,
+// without walking the rigid answers flow. Untyped array per the spec.
+func (c *ColsubsidioClient) GenerateRecommendations(ctx context.Context, userID string, limit int) ([]interface{}, error) {
+	path := "/api/v1/recommendations/users/" + userID
+	if limit > 0 {
+		path += "?limit=" + fmt.Sprint(limit)
+	}
+	var out struct {
+		Recommendations []interface{} `json:"recommendations"`
+	}
+	if err := c.do(ctx, "POST", path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Recommendations, nil
 }
