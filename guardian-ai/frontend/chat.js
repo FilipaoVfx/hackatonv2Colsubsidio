@@ -7,6 +7,14 @@ let convID = null;
 let phone = "";
 let typingEl = null;
 
+// preBuffer guarda los eventos que llegan por /ws ANTES de que el frontend
+// conozca el convID (el backend publica CALL_STARTED + saludo de forma síncrona,
+// antes de responder /api/chat/start). Sin esto el saludo se pierde y el hilo
+// arranca vacío. Al fijar convID se re-reproducen (replay) los buffered de esa
+// conversación, en orden. Fuente de verdad única = /ws, sin carreras.
+let preBuffer = [];
+const PREBUFFER_MAX = 400;
+
 const now = () => new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 
 // ---------- dark mode (persistido) ----------
@@ -123,6 +131,40 @@ function setWS(on, txt) {
   $("wsState").textContent = txt;
 }
 
+// handleEvent renderiza un evento ya confirmado como perteneciente a convID.
+// El indicador "escribiendo…" se ata al pensar REAL del motor: aparece cuando
+// entra un mensaje / el motor arranca, y se retira al llegar la burbuja del
+// agente, al finalizar o ante un error. Así la UI se siente reactiva durante la
+// latencia del LLM en vez de parpadear.
+function handleEvent(ev) {
+  addEvent(ev);
+  switch (ev.type) {
+    case "MESSAGE_RECEIVED":
+    case "LLM_REQUESTED":
+      showTyping();
+      break;
+    case "TRANSCRIPT_UPDATED":
+      if (ev.payload && ev.payload.is_final) {
+        if (ev.payload.role === "agent") removeTyping();
+        addBubble(ev.payload.role, ev.payload.text);
+        if (ev.payload.role === "user") showTyping(); // el agente va a responder
+      }
+      break;
+    case "CALL_ENDED":
+    case "ERROR_OCCURRED":
+      removeTyping();
+      break;
+  }
+}
+
+// drainPreBuffer re-reproduce, en orden, los eventos de esta conversación que
+// llegaron antes de conocer convID (p.ej. el saludo de apertura).
+function drainPreBuffer() {
+  const buffered = preBuffer.filter((e) => e.call_id === convID);
+  preBuffer = [];
+  buffered.forEach(handleEvent);
+}
+
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -130,13 +172,15 @@ function connectWS() {
   ws.onmessage = (m) => {
     let ev;
     try { ev = JSON.parse(m.data); } catch (_) { return; }
-    if (!convID || ev.call_id !== convID) return;
-    addEvent(ev);
-    if (ev.type === "MESSAGE_RECEIVED") showTyping();
-    if (ev.type === "TRANSCRIPT_UPDATED" && ev.payload && ev.payload.is_final) {
-      addBubble(ev.payload.role, ev.payload.text);
+    if (!convID) {
+      // Aún no sabemos a qué conversación pertenecemos: bufferizar por si es la
+      // nuestra (se filtra por call_id al fijar convID).
+      preBuffer.push(ev);
+      if (preBuffer.length > PREBUFFER_MAX) preBuffer.shift();
+      return;
     }
-    if (ev.type === "CALL_ENDED") removeTyping();
+    if (ev.call_id !== convID) return;
+    handleEvent(ev);
   };
   ws.onclose = () => { setWS(false, "reconectando…"); setTimeout(connectWS, 1500); };
   ws.onerror = () => setWS(false, "reconectando…");
@@ -157,7 +201,8 @@ async function startContact() {
   convID = d.conversation_id;
   clearThread();
   clearFeed();
-  showTyping(); // el saludo llega por WS
+  drainPreBuffer(); // re-reproduce el saludo/eventos que llegaron antes del convID
+  if ($("waThread").children.length === 0) showTyping(); // aún en camino por WS
   $("waMsg").disabled = false;
   $("waSend").disabled = false;
   $("waEnd").disabled = false;
@@ -189,6 +234,7 @@ async function endContact() {
   $("waStart").disabled = false;
   $("evLive").style.display = "none";
   convID = null;
+  preBuffer = []; // evita fugas de eventos hacia la próxima conversación
 }
 
 $("waStart").addEventListener("click", startContact);
