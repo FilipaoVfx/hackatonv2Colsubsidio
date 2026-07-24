@@ -52,6 +52,21 @@ async function loadCaps() {
   } catch (_) { /* offline: queda en modo demo */ }
 }
 
+// Re-enganche tras recargar: si hay una sesión WhatsApp viva, adoptarla para
+// que el hilo siga en vivo (los mensajes siguientes aparecen por /ws).
+async function reattachLive() {
+  try {
+    const r = await fetch("/api/whatsapp/debug");
+    if (!r.ok) return;
+    const d = await r.json();
+    const s = (d.live_sessions || []).sort((a, b) =>
+      new Date(b.last_activity) - new Date(a.last_activity))[0];
+    if (s && !convID) {
+      attach(s.conversation_id, s.phone, { live: true });
+    }
+  } catch (_) { /* sin debug endpoint: nada */ }
+}
+
 // ---------- render de burbujas ----------
 function clearThread() {
   const t = $("waThread");
@@ -342,3 +357,4 @@ $("waMsg").addEventListener("keydown", (e) => { if (e.key === "Enter") sendInbou
 
 loadCaps();
 connectWS();
+reattachLive();

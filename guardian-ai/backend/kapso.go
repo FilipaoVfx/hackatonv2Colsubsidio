@@ -49,10 +49,10 @@ func NewKapsoAdapter() *KapsoAdapter {
 
 func (k *KapsoAdapter) Enabled() bool { return k.apiKey != "" && k.phoneNumberID != "" }
 
-// kapsoDigits normalizes an E.164 phone to the digits-only form the Meta
-// Cloud API expects in "to" ("+57300..." -> "57300...").
+// kapsoDigits normalizes a phone to the digits-only form the Meta Cloud API
+// expects in "to" ("+57 300 123..." -> "57300123..."). Spaces/dashes dropped.
 func kapsoDigits(phone string) string {
-	return strings.TrimPrefix(strings.TrimSpace(phone), "+")
+	return strings.TrimPrefix(canonPhone(phone), "+")
 }
 
 // Send delivers a free-form text message to `to` (E.164) and returns the

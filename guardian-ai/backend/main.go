@@ -288,6 +288,7 @@ func main() {
 	// pipeline: resolve (or open) the session, then Turn. Used by both the offline
 	// simulate route and the real Kapso webhook.
 	waInbound := func(ctx context.Context, from, text string) (string, error) {
+		from = canonPhone(from) // una sola forma canónica por cliente
 		// Preferred: Guardian Conversation Engine (LLM entiende, API decide).
 		if guardian.Enabled() {
 			convID, err := guardian.HandleInbound(ctx, from, text)
@@ -330,6 +331,7 @@ func main() {
 		if err := c.BodyParser(&in); err != nil || in.To == "" {
 			return fiber.NewError(400, "to (E.164 phone) required")
 		}
+		in.To = canonPhone(in.To) // misma forma canónica que el webhook
 		// Preferred: Guardian engine opens the conversation with its opener.
 		if guardian.Enabled() {
 			convID, err := guardian.StartContact(c.Context(), in.To)

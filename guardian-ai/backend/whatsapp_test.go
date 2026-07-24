@@ -144,3 +144,29 @@ func TestReplyEventVoiceDefault(t *testing.T) {
 		}
 	}
 }
+
+// TestCanonPhoneAndSessionUnification: el mismo cliente con formatos distintos
+// de teléfono debe resolver a UNA sola sesión/conversación.
+func TestCanonPhoneAndSessionUnification(t *testing.T) {
+	cases := map[string]string{
+		"+57 313 456 5686": "+573134565686",
+		"+573134565686":    "+573134565686",
+		"57-313-456-5686":  "+573134565686",
+		" 3134565686 ":     "+3134565686",
+		"":                 "",
+	}
+	for in, want := range cases {
+		if got := canonPhone(in); got != want {
+			t.Errorf("canonPhone(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	s := NewWhatsAppSessions()
+	s.Register("+57 313 456 5686", "conv-A") // humano con espacios
+	if id, isNew := s.Resolve("+573134565686"); isNew || id != "conv-A" {
+		t.Fatalf("webhook sin espacios debe reusar la sesión: id=%q isNew=%v", id, isNew)
+	}
+	if kapsoDigits("+57 313 456 5686") != "573134565686" {
+		t.Errorf("kapsoDigits con espacios = %q", kapsoDigits("+57 313 456 5686"))
+	}
+}

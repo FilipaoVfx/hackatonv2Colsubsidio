@@ -1,9 +1,27 @@
 package main
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
+
+// canonPhone normalizes a phone to its canonical E.164 form ("+" + digits
+// only). WhatsApp/Kapso deliver "+573001234567" while humans type
+// "+57 300 123 4567"; without one canonical form the SAME customer gets two
+// parallel sessions/conversations and the UI attaches to the wrong one.
+func canonPhone(phone string) string {
+	var b strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "+" + b.String()
+}
 
 // waWindow is the WhatsApp 24h service window. A conversation older than this is
 // considered closed; the next inbound message opens a fresh one.
@@ -37,6 +55,7 @@ func NewWhatsAppSessions() *WhatsAppSessions {
 // previous one is outside the 24h window, it returns isNew=true and the caller
 // must open a conversation (engine.Start) then Register the mapping.
 func (s *WhatsAppSessions) Resolve(phone string) (convID string, isNew bool) {
+	phone = canonPhone(phone)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.byPhone[phone]; ok && s.now().Sub(sess.lastActivity) < waWindow {
@@ -49,6 +68,7 @@ func (s *WhatsAppSessions) Resolve(phone string) (convID string, isNew bool) {
 
 // Register binds a phone to a freshly started conversation (bidirectional).
 func (s *WhatsAppSessions) Register(phone, convID string) {
+	phone = canonPhone(phone)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// drop any stale reverse mapping for this phone's old conversation

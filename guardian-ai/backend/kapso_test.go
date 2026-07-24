@@ -80,8 +80,8 @@ func TestParseKapsoWebhookInvalid(t *testing.T) {
 // ---------- KapsoAdapter ----------
 
 func TestKapsoDigits(t *testing.T) {
-	if got := kapsoDigits("+57 300 123 4567"); got != "57 300 123 4567" {
-		t.Errorf("kapsoDigits strip + = %q", got)
+	if got := kapsoDigits("+57 300 123 4567"); got != "573001234567" {
+		t.Errorf("kapsoDigits debe quitar + y separadores = %q", got)
 	}
 	if got := kapsoDigits("57300"); got != "57300" {
 		t.Errorf("kapsoDigits digits-only = %q", got)
