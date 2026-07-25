@@ -33,11 +33,22 @@ func TestActionAllowed(t *testing.T) {
 	if !ActionAllowed(StateProfile, ActionAsk) {
 		t.Error("ask debe permitirse en PROFILE_DISCOVERY")
 	}
-	if ActionAllowed(StateProfile, ActionHandoff) {
-		t.Error("handoff NO debe permitirse en PROFILE_DISCOVERY")
+	// Pedir un asesor humano es legítimo en cualquier etapa viva: el motor lo
+	// honra caminando flechas legales, no saltando estados.
+	if !ActionAllowed(StateProfile, ActionHandoff) {
+		t.Error("handoff debe permitirse en PROFILE_DISCOVERY")
 	}
 	if !ActionAllowed(StateMatching, ActionHandoff) {
 		t.Error("handoff debe permitirse en PROJECT_MATCHING")
+	}
+	if ActionAllowed(StateMatching, ActionRecommend) {
+		t.Error("request_recommendation NO debe permitirse en PROJECT_MATCHING (ya se recomendó)")
+	}
+	// La degradación siempre cae en una acción legal del propio estado.
+	for _, s := range []LeadState{StateAffiliation, StateProfile, StateFinancial, StateMatching, StateNurturing} {
+		if got := FallbackAction(s); !ActionAllowed(s, got) {
+			t.Errorf("FallbackAction(%s) = %q, ilegal en ese estado", s, got)
+		}
 	}
 	if ActionAllowed(StateCompleted, ActionAsk) {
 		t.Error("COMPLETED es terminal: sin acciones")

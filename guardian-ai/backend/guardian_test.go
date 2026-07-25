@@ -184,22 +184,86 @@ func TestGuardianFullFlow(t *testing.T) {
 	}
 }
 
-// TestGuardianIllegalActionIgnored: acción fuera de la whitelist se degrada a ask.
+// TestGuardianIllegalActionIgnored: acción fuera de la whitelist se degrada a
+// una acción LEGAL del estado y no mueve el embudo. `request_recommendation`
+// no existe en PROJECT_MATCHING (ahí ya se recomendó).
 func TestGuardianIllegalActionIgnored(t *testing.T) {
 	srv := guardianAPI(t)
 	defer srv.Close()
 	llm := &scriptedLLM{decisions: []GuardianDecision{
-		{Intent: "provide_info", Confidence: 0.9, NextAction: ActionHandoff, AssistantMessage: "hola"}, // handoff ilegal en PROFILE
+		// turno 1: perfil completo → FINANCIAL
+		{Intent: "provide_info", Confidence: 0.9, NextAction: ActionAsk, AssistantMessage: "hola",
+			Entities: []GuardianEntity{
+				{Key: "full_name", Value: "Ana", Confidence: 0.95},
+				{Key: "has_pet", Value: true, Confidence: 0.9},
+			}},
+		// turno 2: ingresos → MATCHING (con recomendación)
+		{Intent: "provide_info", Confidence: 0.9, NextAction: ActionAsk, AssistantMessage: "gracias",
+			Entities: []GuardianEntity{{Key: "monthly_income", Value: 3000000.0, Confidence: 0.9}}},
+		// turno 3: acción ilegal en MATCHING
+		{Intent: "ask_info", Confidence: 0.9, NextAction: ActionRecommend, AssistantMessage: "claro"},
 	}}
 	g, cap := newGuardianForTest(t, srv.URL, llm)
-	if _, err := g.HandleInbound(context.Background(), "+573000000002", "hola"); err != nil {
-		t.Fatal(err)
+	ctx := context.Background()
+	for _, msg := range []string{"soy Ana y tengo un perro", "gano 3 millones", "y eso qué cubre?"} {
+		if _, err := g.HandleInbound(ctx, "+573000000002", msg); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if cap.count(LEAD_READY) != 0 {
-		t.Error("handoff ilegal no debe producir LEAD_READY")
+		t.Error("una acción ilegal no debe producir LEAD_READY")
 	}
 	if cap.count(CALL_ENDED) != 0 {
-		t.Error("handoff ilegal no debe cerrar la conversación")
+		t.Error("una acción ilegal no debe cerrar la conversación")
+	}
+	var degraded bool
+	cap.mu.Lock()
+	for _, ev := range cap.events {
+		if ev.Type == ERROR_OCCURRED && ev.Payload["code"] == "illegal_action" {
+			degraded = true
+		}
+	}
+	cap.mu.Unlock()
+	if !degraded {
+		t.Error("la acción ilegal no quedó registrada como degradada")
+	}
+}
+
+// TestGuardianHandoffWalksLegalArrows: pedir un asesor en PROFILE_DISCOVERY es
+// legítimo y se honra, pero SIN saltar estados y SIN fabricar una recomendación
+// sobre un perfil a medias.
+func TestGuardianHandoffWalksLegalArrows(t *testing.T) {
+	srv := guardianAPI(t)
+	defer srv.Close()
+	llm := &scriptedLLM{decisions: []GuardianDecision{
+		{Intent: "request_advisor", Confidence: 0.95, NextAction: ActionHandoff,
+			AssistantMessage: "Claro, te comunico con un asesor."},
+	}}
+	g, cap := newGuardianForTest(t, srv.URL, llm)
+	if _, err := g.HandleInbound(context.Background(), "+573000000004", "quiero hablar con un asesor"); err != nil {
+		t.Fatal(err)
+	}
+
+	var seq []string
+	cap.mu.Lock()
+	for _, ev := range cap.events {
+		if ev.Type == STATE_CHANGED {
+			seq = append(seq, ev.Payload["from"].(string)+">"+ev.Payload["to"].(string))
+		}
+	}
+	cap.mu.Unlock()
+	joined := strings.Join(seq, " ")
+	for _, want := range []string{"PROFILE_DISCOVERY>FINANCIAL_QUALIFICATION",
+		"FINANCIAL_QUALIFICATION>PROJECT_MATCHING", "PROJECT_MATCHING>READY_FOR_ADVISOR"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("falta transición %s en %s", want, joined)
+		}
+	}
+	if cap.count(LEAD_READY) != 1 {
+		t.Errorf("LEAD_READY = %d, want 1", cap.count(LEAD_READY))
+	}
+	if n := cap.count(RECOMMENDATION_GENERATED); n != 0 {
+		t.Errorf("RECOMMENDATION_GENERATED = %d, want 0 (perfil incompleto: decide el asesor)", n)
 	}
 }
 

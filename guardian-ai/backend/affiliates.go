@@ -149,8 +149,17 @@ func incomeEstimate(salaryRange string) (float64, bool) {
 // Variables maps the affiliate to canonical Protege variables. La base se
 // traduce al vocabulario de la API (nunca al revés): monthly_income estimado
 // alimenta las reglas existentes; el resto son claves 360 nuevas.
-func (af Affiliate) Variables() []VariableValue {
+//
+// confirmed = el cliente dio su número de afiliado y este es SU registro del
+// maestro. Sin confirmar (vinculación demo por hash de teléfono) el perfil es
+// una estimación: entra con confianza baja y SIN monthly_income, porque ese
+// dato calificaría la etapa financiera y dispararía las reglas de capacidad
+// con un ingreso que nadie confirmó.
+func (af Affiliate) Variables(confirmed bool) []VariableValue {
 	conf := 0.85 // dato de la base, no confirmado en conversación
+	if !confirmed {
+		conf = 0.4 // estimación: por debajo del umbral de "hecho confirmado" (0.6)
+	}
 	v := func(key string, value interface{}) VariableValue {
 		c := conf
 		return VariableValue{Key: key, Value: value, Source: "colsubsidio_360", Confidence: &c}
@@ -170,7 +179,7 @@ func (af Affiliate) Variables() []VariableValue {
 	if af.FamilySegment != "" {
 		out = append(out, v("family_segment", af.FamilySegment))
 	}
-	if income, ok := incomeEstimate(af.SalaryRange); ok {
+	if income, ok := incomeEstimate(af.SalaryRange); ok && confirmed {
 		out = append(out, v("monthly_income", income))
 	}
 	if af.Hotels {

@@ -41,9 +41,16 @@ func TestBuildSystemPromptSections(t *testing.T) {
 			t.Errorf("prompt sin %q", want)
 		}
 	}
-	// El enum de acciones respeta el estado: handoff no está en PROFILE.
-	if strings.Contains(p, ActionHandoff) {
-		t.Error("handoff no debe ofrecerse en PROFILE_DISCOVERY")
+	// El enum de acciones respeta el estado: en PROFILE no se ofrece cerrar por
+	// recomendación entregada, pero sí pedir asesor.
+	if !strings.Contains(p, ActionHandoff) {
+		t.Error("handoff debe ofrecerse en PROFILE_DISCOVERY")
+	}
+	// El intent también es enum cerrado: el prompt lo enumera.
+	for _, want := range []string{"request_advisor", "objection"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt sin el intent %q del enum", want)
+		}
 	}
 }
 
