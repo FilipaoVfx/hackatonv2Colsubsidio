@@ -254,7 +254,7 @@ var guardianSchema = map[string]interface{}{
 	"additionalProperties": false,
 	"required":             []string{"intent", "entities", "confidence", "next_action", "assistant_message"},
 	"properties": map[string]interface{}{
-		"intent":     map[string]interface{}{"type": "string"},
+		"intent":     map[string]interface{}{"type": "string", "enum": guardianIntents},
 		"confidence": map[string]interface{}{"type": "number"},
 		"next_action": map[string]interface{}{
 			"type": "string",

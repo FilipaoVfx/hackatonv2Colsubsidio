@@ -143,9 +143,10 @@ func sectionOutput(in PromptInput) string {
 	}
 	return fmt.Sprintf(`## Formato de salida (obligatorio)
 Responde SOLO el JSON del esquema. Campos:
-- intent: intención del cliente en este mensaje (ej: greeting, provide_info, ask_info, objection, accept, reject, request_advisor, goodbye).
+- intent: intención del cliente en este mensaje, UNA de [%s].
 - entities: hechos NUEVOS y confirmados que el cliente reveló, como pares {key, value, confidence}. Usa exactamente las variable_key de la guía cuando apliquen. Si dudas, confidence < 0.6.
 - confidence: confianza global de tu lectura del mensaje (0-1).
 - next_action: una de [%s]. Es una PROPUESTA; el sistema decide.
-- assistant_message: tu respuesta al cliente (texto natural de WhatsApp, sin JSON).`, list)
+- assistant_message: tu respuesta al cliente (texto natural de WhatsApp, sin JSON).`,
+		strings.Join(guardianIntents, ", "), list)
 }

@@ -99,6 +99,24 @@ func (s *WhatsAppSessions) Close(convID string) {
 	}
 }
 
+// Sweep drops the sessions whose 24h window already expired and returns their
+// conversation ids. Resolve ya ignora las caducadas, pero nadie las borraba:
+// una conversación abandonada se quedaba en memoria para siempre (junto con su
+// estado en el motor). El barrido periódico las libera.
+func (s *WhatsAppSessions) Sweep() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var expired []string
+	for phone, sess := range s.byPhone {
+		if s.now().Sub(sess.lastActivity) >= waWindow {
+			expired = append(expired, sess.convID)
+			delete(s.byPhone, phone)
+			delete(s.byConv, sess.convID)
+		}
+	}
+	return expired
+}
+
 // SessionInfo is a read-only snapshot of a live session (for the debug/API layer).
 type SessionInfo struct {
 	Phone        string    `json:"phone"`

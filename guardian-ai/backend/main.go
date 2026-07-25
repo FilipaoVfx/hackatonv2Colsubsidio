@@ -141,6 +141,23 @@ func main() {
 			log.Printf("afiliado360: %d regla(s) 360 sembradas en la API", n)
 		}()
 	}
+	// Barrido de conversaciones abandonadas: pasada la ventana de 24h de
+	// WhatsApp la sesión ya no sirve, pero nadie la borraba y su estado en el
+	// motor (historial, catálogo, recomendaciones) vivía hasta el reinicio.
+	go func() {
+		for range time.Tick(30 * time.Minute) {
+			if guardian.Enabled() {
+				if n := guardian.Sweep(); n > 0 {
+					log.Printf("guardian: %d conversación(es) liberadas por ventana de 24h vencida", n)
+				}
+				continue
+			}
+			if n := len(sessions.Sweep()); n > 0 {
+				log.Printf("whatsapp: %d sesión(es) liberadas por ventana de 24h vencida", n)
+			}
+		}
+	}()
+
 	// Delivery consumer (bus -> Kapso), per RA-002. Every MESSAGE_SENT is sent to
 	// the customer's phone; in demo mode (no creds) it is a no-op because the reply
 	// already reached the UI via the ws_hub subscriber.
@@ -433,16 +450,28 @@ func main() {
 	// so we ack immediately and process the conversation turn asynchronously
 	// (events stream to the UI over /ws; replies go out via the MESSAGE_SENT
 	// delivery consumer).
+	// Reentregas de Kapso (no llegó el 200 a tiempo) no deben correr el turno
+	// dos veces: se descartan por message id dentro de esta ventana.
+	webhookDedupe := newInboundDedupe(15 * time.Minute)
 	app.Post("/api/whatsapp/webhook", func(c *fiber.Ctx) error {
 		body := c.Body()
 		status, debug := processKapsoWebhook(body, c.Get("X-Webhook-Event"),
-			c.Get("X-Webhook-Signature"), os.Getenv("KAPSO_WEBHOOK_SECRET"),
+			c.Get("X-Webhook-Signature"), os.Getenv("KAPSO_WEBHOOK_SECRET"), webhookDedupe,
 			func(from, text string) {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 					defer cancel()
 					if _, err := waInbound(ctx, from, text); err != nil {
 						log.Printf("whatsapp webhook turn failed: %v", err)
+						// El turno falló antes de existir la conversación (API
+						// caída al abrir): no hay bus por el que responder, así
+						// que el cliente recibiría SILENCIO. Se le contesta por
+						// el canal directamente.
+						if wa.Enabled() {
+							if _, sErr := wa.Send(ctx, from, guardianFallbackMsg); sErr != nil {
+								log.Printf("whatsapp fallback reply failed: %v", sErr)
+							}
+						}
 					}
 				}()
 			})

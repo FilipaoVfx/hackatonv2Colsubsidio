@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -251,13 +252,52 @@ func verifyKapsoSignature(body []byte, signature, secret string) bool {
 	return hmac.Equal(got, expected)
 }
 
+// inboundDedupe suppresses repeated deliveries of the SAME WhatsApp message.
+// Kapso reintenta cuando no recibe el 200 a tiempo y también entrega lotes con
+// reintentos dentro: sin esto el mismo mensaje corre dos turnos completos
+// (doble llamada al LLM, variables guardadas dos veces, respuesta duplicada al
+// cliente). Ventana acotada por TTL: pasado ese tiempo el mismo id volvería a
+// procesarse, que es el comportamiento seguro si Kapso reusa identificadores.
+type inboundDedupe struct {
+	mu   sync.Mutex
+	ttl  time.Duration
+	seen map[string]time.Time
+	now  func() time.Time // inyectable en tests
+}
+
+func newInboundDedupe(ttl time.Duration) *inboundDedupe {
+	return &inboundDedupe{ttl: ttl, seen: make(map[string]time.Time), now: time.Now}
+}
+
+// first reports whether id is being seen for the first time inside the TTL. A
+// nil dedupe or an empty id always processes (no hay nada por lo que dedupar).
+func (d *inboundDedupe) first(id string) bool {
+	if d == nil || id == "" {
+		return true
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := d.now()
+	for k, t := range d.seen { // barrido perezoso: el mapa no crece sin límite
+		if now.Sub(t) > d.ttl {
+			delete(d.seen, k)
+		}
+	}
+	if t, ok := d.seen[id]; ok && now.Sub(t) <= d.ttl {
+		return false
+	}
+	d.seen[id] = now
+	return true
+}
+
 // processKapsoWebhook is the transport-agnostic core of POST /api/whatsapp/webhook
 // (extracted for testability). It verifies the signature (when a secret is
 // configured), filters non-message events, extracts each (from, text) pair and
-// hands them to process(). It returns the HTTP status to ack with and a short
-// debug string. Kapso requires a 200 within 10s — process() must be cheap or
-// async (in main it runs in a goroutine).
-func processKapsoWebhook(body []byte, eventHeader, signature, secret string, process func(from, text string)) (status int, debug string) {
+// hands them to process(). Repeated deliveries of a message already seen by
+// `dedupe` are acked and dropped (dedupe nil ⇒ sin deduplicación). It returns
+// the HTTP status to ack with and a short debug string. Kapso requires a 200
+// within 10s — process() must be cheap or async (in main it runs in a goroutine).
+func processKapsoWebhook(body []byte, eventHeader, signature, secret string, dedupe *inboundDedupe, process func(from, text string)) (status int, debug string) {
 	if secret != "" && !verifyKapsoSignature(body, signature, secret) {
 		return 401, "invalid webhook signature"
 	}
@@ -268,14 +308,21 @@ func processKapsoWebhook(body []byte, eventHeader, signature, secret string, pro
 	if len(payloads) == 0 {
 		return 200, "no payloads"
 	}
-	n := 0
+	n, dup := 0, 0
 	for _, p := range payloads {
-		from, text, _ := parseKapsoInbound(p)
+		from, text, msgID := parseKapsoInbound(p)
 		if from == "" || text == "" {
 			continue // no-texto o malformado: ack e ignorar
 		}
+		if !dedupe.first(msgID) {
+			dup++
+			continue // reentrega del mismo mensaje: ack sin volver a procesarlo
+		}
 		process(from, text)
 		n++
+	}
+	if dup > 0 {
+		return 200, fmt.Sprintf("processed %d/%d message(s), %d duplicate(s) ignored", n, len(payloads), dup)
 	}
 	return 200, fmt.Sprintf("processed %d/%d message(s)", n, len(payloads))
 }
