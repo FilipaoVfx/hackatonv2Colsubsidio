@@ -238,7 +238,7 @@ controles genéricos de librería.
 
 | Sección | Estado en el MVP |
 |---|---|
-| General | **Real**: nombre, estado (borrador/publicado), versión, modelo, última actualización, botón Publicar |
+| General | **Real**: nombre, versión viva, modelo, última edición y botón *Aplicar cambios* propio |
 | Personality | **Real**: 5 sliders + longitud + 2 switches, con preview inmediato |
 | Sales | **Real**: objetivos con orden por arrastre o botones ↑/↓ (teclado incluido) |
 | Safety | **Real**: checklist de prohibiciones + nivel |

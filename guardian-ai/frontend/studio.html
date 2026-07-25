@@ -51,8 +51,17 @@
     .locked { background: var(--paper-2); border-radius: 10px; padding: 4px 12px; }
     .err { color: var(--alert); margin-top: 4px; }
     .st-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-    .saved { color: var(--seal-ok); }
     .head-with-seal { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+
+    /* Pie de sección: el botón que de verdad cambia el comportamiento del
+       asesor, junto al estado de esa sección. Uno por sección, para que la
+       acción esté donde se hizo el cambio y no al final de la página. */
+    .sec-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+                margin-top: 14px; padding-top: 12px; border-top: 1px dotted var(--rule); }
+    .sec-state { font-size: 11px; color: var(--ink-soft); }
+    .sec-state.ok { color: var(--seal-ok); font-weight: 600; }
+    .sec-state.err { color: var(--alert); font-weight: 600; }
+    .sec-state.pending { color: #8a6d00; font-weight: 600; }
 
     /* Playground: mismo lenguaje que el hilo de /chat, para que probar el
        borrador se vea exactamente como se verá en WhatsApp. */
@@ -151,7 +160,7 @@
     <header class="page-head">
       <div>
         <h1>Agent Studio</h1>
-        <p class="sub">Diseña cómo se comporta el asesor. No se escriben prompts: se mueven controles, y el sistema compone las instrucciones. El prompt de la derecha es el que recibe el modelo.</p>
+        <p class="sub">Diseña cómo se comporta el asesor. No se escriben prompts: se mueven controles y el sistema compone las instrucciones. Cada sección tiene su botón <strong>Aplicar cambios</strong>: eso es lo que pone el cambio a atender clientes, desde el siguiente mensaje de cada conversación.</p>
       </div>
       <div class="head-actions">
         <span class="chip" id="statusChip">cargando…</span>
@@ -176,6 +185,11 @@
           <div class="field"><span class="k">Versión viva</span><span class="rule-fill"></span><span class="v mono" id="liveVersion">—</span></div>
           <div class="field"><span class="k">Modelo</span><span class="rule-fill"></span><span class="v mono" id="model">—</span></div>
           <div class="field"><span class="k">Última edición</span><span class="rule-fill"></span><span class="v mono" id="updatedAt">—</span></div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="general" disabled>Aplicar cambios</button>
+            <button class="btn-ghost" id="resetBtn">Restablecer a fábrica</button>
+            <span class="sec-state" data-state="general"></span>
+          </div>
         </div>
 
         <!-- Personalidad -->
@@ -197,6 +211,10 @@
             <div class="levels" id="lengths"></div>
             <div class="knob-phrase" id="lengthPhrase"></div>
           </div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="persona" disabled>Aplicar cambios</button>
+            <span class="sec-state" data-state="persona"></span>
+          </div>
         </div>
 
         <!-- Objetivos -->
@@ -206,6 +224,10 @@
           <p class="hint">El orden manda: cuando dos objetivos compiten, gana el que esté más arriba. Desmarca los que no apliquen a esta campaña.</p>
           <div id="goals"></div>
           <div class="err" id="goalsErr" hidden></div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="sales" disabled>Aplicar cambios</button>
+            <span class="sec-state" data-state="sales"></span>
+          </div>
         </div>
 
         <!-- Seguridad -->
@@ -219,31 +241,19 @@
             <div class="levels" id="levels"></div>
             <div class="knob-phrase" id="levelPhrase"></div>
           </div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="safety" disabled>Aplicar cambios</button>
+            <span class="sec-state" data-state="safety"></span>
+          </div>
         </div>
 
-        <div class="st-actions">
-          <button class="btn-ghost" id="saveBtn">Guardar borrador</button>
-          <button class="btn-ghost" id="resetBtn">Restablecer a fábrica</button>
-          <span class="saved" id="savedNote" hidden>Borrador guardado</span>
-        </div>
-
-        <!-- Publicación -->
+        <!-- Historial -->
         <div class="cred st-section">
-          <div class="eyebrow">Publicación</div>
-          <h2>Poner en marcha</h2>
-          <p class="hint">Publicar aplica el borrador al asesor que atiende clientes. Entra en el <strong>siguiente turno</strong> de cada conversación, así ninguna respuesta cambia de tono a mitad. La nota queda en el historial y nunca llega al modelo.</p>
-          <div class="field">
-            <span class="k">Nota de versión</span><span class="rule-fill"></span>
-            <input type="text" class="v" id="note" maxlength="120" style="max-width:300px" placeholder="qué cambia y por qué" />
-          </div>
-          <div class="err" id="noteErr" hidden></div>
+          <div class="eyebrow">Historial</div>
+          <h2>Versiones del asesor</h2>
+          <p class="hint">Cada <em>Aplicar cambios</em> crea una versión y la pone a atender clientes. Volver a una anterior también crea una versión nueva, así que nunca se pierde el rastro de lo que estuvo vivo.</p>
           <div class="field"><span class="k">Peso en el prompt</span><span class="rule-fill"></span><span class="v mono" id="configBytes">—</span></div>
-          <div class="st-actions">
-            <button class="btn-primary" id="publishBtn">Publicar</button>
-            <span class="saved" id="publishedNote" hidden></span>
-          </div>
-
-          <div class="versions-head">Versiones publicadas</div>
+          <div class="versions-head">Publicadas</div>
           <div id="versions" class="version-list"></div>
         </div>
 
@@ -316,6 +326,6 @@
     </section>
   </main>
 </div>
-<script src="/studio.js?v=1.2.0"></script>
+<script src="/studio.js?v=1.3.0"></script>
 </body>
 </html>

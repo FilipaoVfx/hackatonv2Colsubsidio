@@ -6,15 +6,27 @@
 // pantalla NO tiene ningún campo de texto libre salvo el nombre del agente, y
 // las frases que se muestran bajo cada control vienen del backend: si se
 // escribieran aquí, un día dirían una cosa y el modelo recibiría otra.
-const STUDIO_UI_VERSION = "1.2.0";
+const STUDIO_UI_VERSION = "1.3.0";
 console.log(`[guardian-ai] studio UI v${STUDIO_UI_VERSION}`);
 
 const $ = (id) => document.getElementById(id);
 
-let cfg = null;        // borrador en edición (local)
+let cfg = null;        // configuración en edición (local)
 let catalogs = null;
-let published = null;
-let dirty = false;
+let published = null;  // la que está atendiendo clientes AHORA
+
+// Estado por sección. Cada sección tiene su propio botón "Aplicar cambios", que
+// es el único gesto que cambia el comportamiento del asesor en vivo. Mientras no
+// se pulse, lo que se mueve en pantalla no afecta a ninguna conversación — y la
+// sección lo dice con "sin aplicar" en vez de dejar al usuario adivinando.
+const SECTIONS = {
+  general: "Nombre del agente",
+  persona: "Personalidad",
+  sales:   "Objetivos comerciales",
+  safety:  "Límites de seguridad",
+};
+const pending = { general: false, persona: false, sales: false, safety: false };
+const anyPending = () => Object.values(pending).some(Boolean);
 
 // ---------- dark mode (mismo contrato que el resto de vistas) ----------
 function applyTheme(dark) {
@@ -124,7 +136,7 @@ function renderAll() {
   $("updatedAt").textContent = cfg.updated_at && !cfg.updated_at.startsWith("0001")
     ? new Date(cfg.updated_at).toLocaleString("es-CO")
     : "sin cambios";
-  $("statusChip").textContent = dirty ? "borrador sin guardar" : `viva: v${published.version}`;
+  renderStatusChip();
 
   renderSliders();
   $("emojis").checked = cfg.persona.emojis;
@@ -158,7 +170,7 @@ function renderSliders() {
       const phrase = phraseFor(key, v);
       $(`ph-${key}`).textContent = phrase;
       input.setAttribute("aria-valuetext", phrase);
-      markDirty();
+      markDirty("persona");
     });
   }
 }
@@ -171,7 +183,7 @@ function renderLengths() {
     b.className = "btn-ghost";
     b.textContent = len[0].toUpperCase() + len.slice(1);
     b.setAttribute("aria-pressed", String(cfg.persona.length === len));
-    b.addEventListener("click", () => { cfg.persona.length = len; renderLengths(); markDirty(); });
+    b.addEventListener("click", () => { cfg.persona.length = len; renderLengths(); markDirty("persona"); });
     host.appendChild(b);
     if (cfg.persona.length === len) $("lengthPhrase").textContent = catalogs.persona_phrases.length[i];
   });
@@ -200,11 +212,11 @@ function goalRow(goal, index, on, total) {
     moves.appendChild(moveBtn("↑", "Subir prioridad", index === 0, () => swapGoal(index, index - 1)));
     moves.appendChild(moveBtn("↓", "Bajar prioridad", index === total - 1, () => swapGoal(index, index + 1)));
     moves.appendChild(moveBtn("Quitar", "Quitar objetivo", total === 1, () => {
-      cfg.sales.goals.splice(index, 1); renderGoals(); markDirty();
+      cfg.sales.goals.splice(index, 1); renderGoals(); markDirty("sales");
     }));
   } else {
     moves.appendChild(moveBtn("Añadir", "Añadir objetivo", false, () => {
-      cfg.sales.goals.push(goal); renderGoals(); markDirty();
+      cfg.sales.goals.push(goal); renderGoals(); markDirty("sales");
     }));
   }
   return row;
@@ -224,7 +236,7 @@ function swapGoal(a, b) {
   const g = cfg.sales.goals;
   [g[a], g[b]] = [g[b], g[a]];
   renderGoals();
-  markDirty();
+  markDirty("sales");
 }
 
 function renderForbid() {
@@ -240,7 +252,7 @@ function renderForbid() {
     $(id).addEventListener("change", (e) => {
       if (e.target.checked) cfg.safety.forbid.push(key);
       else cfg.safety.forbid = cfg.safety.forbid.filter((k) => k !== key);
-      markDirty();
+      markDirty("safety");
     });
   });
 }
@@ -253,7 +265,7 @@ function renderLevels() {
     b.className = "btn-ghost";
     b.textContent = level[0].toUpperCase() + level.slice(1);
     b.setAttribute("aria-pressed", String(cfg.safety.level === level));
-    b.addEventListener("click", () => { cfg.safety.level = level; renderLevels(); markDirty(); });
+    b.addEventListener("click", () => { cfg.safety.level = level; renderLevels(); markDirty("safety"); });
     host.appendChild(b);
     if (cfg.safety.level === level) $("levelPhrase").textContent = catalogs.persona_phrases.safety_level[i];
   });
@@ -306,111 +318,175 @@ $("copyBtn").addEventListener("click", async () => {
 $("agentName").addEventListener("input", (e) => {
   cfg.persona.agent_name = e.target.value;
   $("sideAgentName").textContent = e.target.value || "Guardian";
-  markDirty();
+  markDirty("general");
 });
 
-function markDirty() {
-  dirty = true;
-  $("statusChip").textContent = "borrador sin guardar";
-  $("savedNote").hidden = true;
+// Emojis y humor: son interruptores del mismo modelo que el resto de la
+// personalidad, así que escriben en la configuración igual que los sliders.
+for (const knob of ["emojis", "humor"]) {
+  $(knob).addEventListener("change", (e) => {
+    cfg.persona[knob] = e.target.checked;
+    markDirty("persona");
+  });
 }
 
+// ---------- estado por sección ----------
+const applyBtn = (section) => document.querySelector(`[data-apply="${section}"]`);
+const stateEl  = (section) => document.querySelector(`[data-state="${section}"]`);
+
+// El chip de cabecera responde siempre a la pregunta "¿qué está atendiendo
+// clientes ahora mismo?", y avisa si hay algo escrito que todavía no lo hace.
+function renderStatusChip() {
+  const chip = $("statusChip");
+  if (anyPending()) {
+    const n = Object.values(pending).filter(Boolean).length;
+    chip.textContent = `v${published.version} en vivo · ${n} secci${n === 1 ? "ón" : "ones"} sin aplicar`;
+    return;
+  }
+  chip.textContent = `v${published.version} en vivo · ${published.persona.agent_name}`;
+}
+
+function markDirty(section) {
+  pending[section] = true;
+  const btn = applyBtn(section);
+  if (btn) btn.disabled = false;
+  setSectionState(section, "Sin aplicar: el asesor sigue con la versión anterior.", "pending");
+  renderStatusChip();
+}
+
+function setSectionState(section, text, kind) {
+  const el = stateEl(section);
+  if (!el) return;
+  el.textContent = text;
+  el.className = "sec-state" + (kind ? " " + kind : "");
+}
+
+// Tras aplicar, TODAS las secciones quedan limpias: la configuración es un
+// único objeto con una única versión, así que publicar una sección publica
+// también lo que hubiera pendiente en las demás. La confirmación lo dice.
+function clearAllPending() {
+  for (const section of Object.keys(SECTIONS)) {
+    pending[section] = false;
+    const btn = applyBtn(section);
+    if (btn) btn.disabled = true;
+    setSectionState(section, "", "");
+  }
+}
+
+// showFieldErrors marca el control que falla, en su sección. Un cartel genérico
+// obligaría a adivinar cuál de veinte controles rompió la validación.
 function showFieldErrors(errors) {
   $("agentNameErr").hidden = true;
   $("goalsErr").hidden = true;
-  $("noteErr").hidden = true;
   for (const err of errors) {
     if (err.field === "persona.agent_name") {
       $("agentNameErr").textContent = err.message;
       $("agentNameErr").hidden = false;
+      setSectionState("general", err.message, "err");
     } else if (err.field === "sales.goals") {
       $("goalsErr").textContent = err.message;
       $("goalsErr").hidden = false;
-    } else if (err.field === "note") {
-      $("noteErr").textContent = err.message;
-      $("noteErr").hidden = false;
+      setSectionState("sales", err.message, "err");
     } else {
-      $("statusChip").textContent = `${err.field}: ${err.message}`;
+      // El resto de campos vive en personalidad o en límites.
+      setSectionState(err.field.startsWith("safety") ? "safety" : "persona",
+        `${err.field}: ${err.message}`, "err");
     }
   }
-}
-
-// saveDraft persiste el borrador y devuelve si quedó guardado. El Playground lo
-// reutiliza: probar SIEMPRE prueba lo que está guardado, nunca un estado local
-// que el backend no conoce.
-async function saveDraft() {
-  $("saveBtn").disabled = true;
-  try {
-    const r = await fetch("/api/studio/config/draft", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cfg),
-    });
-    if (r.status === 422) {
-      const { errors } = await r.json();
-      showFieldErrors(errors || []);
-      return false;
-    }
-    if (!r.ok) { $("statusChip").textContent = "no se pudo guardar"; return false; }
-    const { draft } = await r.json();
-    cfg = draft;
-    dirty = false;
-    showFieldErrors([]);
-    renderAll();
-    $("savedNote").hidden = false;
-    refreshPrompt();
-    return true;
-  } finally {
-    $("saveBtn").disabled = false;
-  }
-}
-
-$("saveBtn").addEventListener("click", saveDraft);
-
-// ---------- publicar ----------
-// Es lo único de la consola que cambia el comportamiento del asesor que atiende
-// clientes. Entra en el siguiente turno de cada conversación.
-async function afterPublish(body, message) {
-  published = body.published;
-  cfg = { ...body.published, status: "draft" };
-  dirty = false;
-  $("noteErr").hidden = true;
-  $("note").value = "";
-  renderAll();
-  renderBytes(body.config_bytes, cfgBytesMax);
-  refreshPrompt();
-  loadVersions();
-  const chip = $("publishedNote");
-  chip.textContent = message;
-  chip.hidden = false;
-  setTimeout(() => (chip.hidden = true), 6000);
 }
 
 let cfgBytesMax = 2048; // se refresca desde el backend al cargar
 
-$("publishBtn").addEventListener("click", async () => {
-  // Se publica lo GUARDADO: si hay cambios sueltos, se guardan primero.
-  if (dirty && !(await saveDraft())) return;
+// saveDraftOnly guarda sin aplicar. Lo usa el Playground: probar corre contra el
+// borrador guardado, así que se puede ensayar un cambio sin que ningún cliente
+// real lo note. NO toca el comportamiento en vivo.
+async function saveDraftOnly() {
+  const r = await fetch("/api/studio/config/draft", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
+  });
+  if (r.status === 422) {
+    showFieldErrors((await r.json()).errors || []);
+    return false;
+  }
+  if (!r.ok) return false;
+  showFieldErrors([]);
+  return true;
+}
 
-  $("publishBtn").disabled = true;
+// ---------- aplicar (el gesto que cambia el asesor en vivo) ----------
+//
+// Un clic hace las dos cosas: guarda la configuración y la publica. El usuario
+// no tiene por qué conocer la distinción interna entre borrador y publicado —
+// pulsa "Aplicar cambios" en la sección que tocó y el asesor cambia.
+//
+// La configuración es UN objeto con UNA versión, así que aplicar desde una
+// sección publica también lo que hubiera pendiente en las demás. La
+// confirmación lo dice en vez de dejar un estado a medias e invisible.
+async function applySection(section) {
+  const btn = applyBtn(section);
+  const others = Object.keys(pending).filter((s) => s !== section && pending[s]);
+
+  btn.disabled = true;
+  setSectionState(section, "Aplicando…", "");
   try {
+    if (!(await saveDraftOnly())) {
+      setSectionState(section, "No se aplicó: revisa los campos marcados.", "err");
+      btn.disabled = false;
+      return;
+    }
+    const note = others.length
+      ? `${SECTIONS[section]} (+ ${others.map((s) => SECTIONS[s].toLowerCase()).join(", ")})`
+      : SECTIONS[section];
     const r = await fetch("/api/studio/config/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note: $("note").value.trim() }),
+      body: JSON.stringify({ note }),
     });
     if (r.status === 422) {
-      const { errors } = await r.json();
-      showFieldErrors(errors || []);
+      showFieldErrors((await r.json()).errors || []);
+      setSectionState(section, "No se aplicó: revisa los campos marcados.", "err");
+      btn.disabled = false;
       return;
     }
-    if (!r.ok) { $("statusChip").textContent = "no se pudo publicar"; return; }
+    if (!r.ok) {
+      setSectionState(section, "No se aplicó: el servidor rechazó el cambio.", "err");
+      btn.disabled = false;
+      return;
+    }
     const body = await r.json();
-    await afterPublish(body, `Publicada v${body.version}: el asesor la usa desde el siguiente turno`);
-  } finally {
-    $("publishBtn").disabled = false;
+    const extra = others.length ? ` (incluye ${others.map((s) => SECTIONS[s].toLowerCase()).join(" y ")})` : "";
+    applied(body, section,
+      `✓ Aplicado — v${body.version} en vivo${extra}. Las conversaciones abiertas la usan desde su siguiente mensaje.`);
+  } catch (err) {
+    setSectionState(section, `No se aplicó: ${err.message}`, "err");
+    btn.disabled = false;
   }
-});
+}
+
+// applied deja la consola contando la verdad tras un cambio en vivo: nueva
+// versión, sin pendientes, prompt e historial al día.
+function applied(body, section, message) {
+  published = body.published;
+  cfg = { ...body.published, status: "draft" };
+  clearAllPending();
+  renderAll();
+  renderBytes(body.config_bytes, cfgBytesMax);
+  refreshPrompt();
+  loadVersions();
+  if (section) {
+    setSectionState(section, message, "ok");
+    // El aviso se apaga, pero el chip de cabecera sigue diciendo qué versión
+    // está viva: el feedback permanente no depende de un temporizador.
+    setTimeout(() => {
+      if (!pending[section]) setSectionState(section, "", "");
+    }, 10000);
+  }
+}
+
+document.querySelectorAll("[data-apply]").forEach((btn) =>
+  btn.addEventListener("click", () => applySection(btn.dataset.apply)));
 
 async function rollback(version) {
   const r = await fetch(`/api/studio/config/rollback/${version}`, {
@@ -420,16 +496,20 @@ async function rollback(version) {
   });
   if (!r.ok) { $("statusChip").textContent = `no se pudo volver a v${version}`; return; }
   const body = await r.json();
-  await afterPublish(body, `Recuperada v${version} como v${body.version}`);
+  applied(body, "general", `✓ Recuperada v${version} como v${body.version}, ya en vivo.`);
 }
 
+// Restablecer NO aplica solo: carga los valores de fábrica en pantalla y deja
+// las secciones pendientes, para que el cambio en vivo siga siendo un gesto
+// deliberado.
 $("resetBtn").addEventListener("click", async () => {
   const r = await fetch("/api/studio/config");
   const data = await r.json();
   cfg = data.defaults;
   cfg.status = "draft";
-  markDirty();
   renderAll();
+  for (const section of Object.keys(SECTIONS)) markDirty(section);
+  setSectionState("general", "Valores de fábrica cargados. Pulsa Aplicar para ponerlos en vivo.", "pending");
 });
 
 // ---------- pestañas de la columna derecha ----------
@@ -540,9 +620,10 @@ async function sendPlay() {
   const text = $("playInput").value.trim();
   if (!play.enabled || play.busy || !text) return;
 
-  // Probar prueba lo GUARDADO: si hay cambios sin guardar, se guardan primero.
-  if (dirty && !(await saveDraft())) {
-    $("statusChip").textContent = "corrige el borrador antes de probarlo";
+  // Probar corre contra el borrador guardado, así que lo que hay en pantalla se
+  // guarda primero. Guardar NO aplica: el asesor real sigue con su versión.
+  if (anyPending() && !(await saveDraftOnly())) {
+    $("statusChip").textContent = "corrige los campos marcados antes de probar";
     return;
   }
 

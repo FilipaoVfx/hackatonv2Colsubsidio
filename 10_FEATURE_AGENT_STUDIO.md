@@ -43,10 +43,11 @@ ahí las tres decisiones que sostienen toda la feature:
 
 | Dimensión | ANTES | DESPUÉS |
 |---|---|---|
-| Cambiar el tono del asesor | Editar `promptbuilder.go`, recompilar, redesplegar (~5 min y una caída de sesiones vivas) | Mover 5 sliders y pulsar Publicar; entra en el siguiente turno sin reiniciar nada |
+| Cambiar el tono del asesor | Editar `promptbuilder.go`, recompilar, redesplegar (~5 min y una caída de sesiones vivas) | Mover 5 sliders y pulsar **Aplicar cambios** en esa sección; entra en el siguiente turno sin reiniciar nada |
 | Quién puede hacerlo | Quien sepa Go y tenga acceso al repo | Cualquiera que abra `/studio` (ver §6: **la consola no tiene autenticación**) |
 | Qué se le puede pedir al agente | Cualquier cosa, escribiendo el prompt a mano | Un vocabulario cerrado: 5 perillas 1–10, longitud, emojis, humor, 6 objetivos ordenables, 5 prohibiciones y 3 niveles de protección |
 | Riesgo de inyección por configuración | No aplicaba (nadie configuraba) | Un único texto libre, validado en el **servidor** (`TestStudioRejectsPromptInjectionThroughTheAPI`); la nota de versión nunca entra al prompt |
+| Saber si un cambio llegó al bot | — | Cada sección dice su estado: *sin aplicar* mientras se edita, *✓ Aplicado — vN en vivo* al pulsar, y el chip de cabecera declara siempre qué versión atiende clientes |
 | Ver el prompt que recibe el modelo | Leer el código y reconstruirlo mentalmente | Prompt Inspector con el prompt real, compuesto con el catálogo vivo de la API |
 | Probar un cambio | Escribirle al bot de verdad por WhatsApp | Playground aislado: sin entrega, sin persistencia, sin `/api/calls`, con coste por turno a la vista |
 | Publicar a mitad de una conversación | — | El turno en curso termina con su snapshot; el siguiente ve la versión nueva. `go test -race` sobre el camino HTTP real |
