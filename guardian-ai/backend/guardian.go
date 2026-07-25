@@ -228,7 +228,15 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	if reply == "" {
 		reply = guardianFallbackMsg
 	}
-	e.sendAgent(convID, phone, reply)
+	// UX: si la siguiente variable por descubrir es simple (boolean o select de
+	// ≤3 opciones) y el turno es una pregunta, adjunta botones quick-reply de
+	// WhatsApp — un tap responde y vuelve como texto por el mismo pipeline.
+	var buttons []string
+	if missing := MissingQuestions(st.state, st.questions, known); len(missing) > 0 &&
+		strings.Contains(reply, "?") {
+		buttons = buttonsForQuestion(&missing[0])
+	}
+	e.sendAgentWithButtons(convID, phone, reply, buttons)
 
 	wantsAdvisor := d.NextAction == ActionHandoff || isAcceptIntent(d.Intent)
 	switch {
@@ -457,12 +465,22 @@ func (e *GuardianEngine) transitionRaw(convID string, from, to LeadState, reason
 }
 
 func (e *GuardianEngine) sendAgent(convID, phone, text string) {
+	e.sendAgentWithButtons(convID, phone, text, nil)
+}
+
+// sendAgentWithButtons igual que sendAgent pero adjunta botones quick-reply en
+// el payload de MESSAGE_SENT (el consumer los entrega como mensaje interactivo).
+func (e *GuardianEngine) sendAgentWithButtons(convID, phone, text string, buttons []string) {
 	e.bus.Publish(convID, TRANSCRIPT_UPDATED, "whatsapp_adapter", map[string]interface{}{
 		"role": "agent", "text": text, "is_final": true,
 	})
-	e.bus.Publish(convID, MESSAGE_SENT, "whatsapp_adapter", map[string]interface{}{
+	payload := map[string]interface{}{
 		"text": text, "channel": "whatsapp", "status": "queued", "to": phone, "wa_message_id": "",
-	})
+	}
+	if len(buttons) > 0 {
+		payload["buttons"] = buttons
+	}
+	e.bus.Publish(convID, MESSAGE_SENT, "whatsapp_adapter", payload)
 	e.mu.Lock()
 	if st := e.convs[convID]; st != nil {
 		st.history = trimHistory(append(st.history, oaMessage{Role: "assistant", Content: text}))
