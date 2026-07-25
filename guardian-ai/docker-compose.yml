@@ -9,8 +9,14 @@ services:
       # (restricción de red sobre la API real). Para la API real, setear
       # COLSUBSIDIO_API_URL en .env — p.ej. COLSUBSIDIO_API_URL=http://147.93.11.136:9000
       - COLSUBSIDIO_API_URL=${COLSUBSIDIO_API_URL:-http://mock-protege:9000}
+      # API del Playground del Agent Studio. Se declara EXPLÍCITA y apuntando a
+      # un contenedor propio: el Playground escribe usuarios y variables en la
+      # API a la que apunte, así que no puede heredar por defecto la que
+      # atiende clientes. Ver 10_FEATURE_AGENT_STUDIO.md §6.
+      - STUDIO_API_URL=${STUDIO_API_URL:-http://studio-mock:9000}
     depends_on:
       - mock-protege
+      - studio-mock
     expose:
       - "3000"
     volumes:
@@ -25,6 +31,15 @@ services:
     build: ./mock-protege
     ports:
       - "9000:9000"
+    restart: unless-stopped
+
+  # Mock DEDICADO al Playground del Agent Studio. Es un contenedor aparte a
+  # propósito: probar un borrador crea usuarios y variables, y esos datos de
+  # ensayo no pueden mezclarse con los del canal que atiende clientes — ni
+  # siquiera con los del mock que usa la demo. Sin puerto en el host: solo lo
+  # alcanza el backend, por la red interna.
+  studio-mock:
+    build: ./mock-protege
     restart: unless-stopped
 
   nginx:
