@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strconv"
 
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -87,13 +88,18 @@ func RegisterStudioRoutes(app *fiber.App, deps StudioDeps) {
 	// catálogos cerrados (para que el frontend no duplique literales) y el
 	// runtime real.
 	app.Get("/api/studio/config", func(c *fiber.Ctx) error {
+		draft := deps.Store.Draft()
 		return c.JSON(fiber.Map{
-			"published":   deps.Store.Published(),
-			"draft":       deps.Store.Draft(),
-			"defaults":    DefaultConfig(),
-			"live":        deps.Engine.Config(), // lo que el motor está usando AHORA
-			"runtime":     currentRuntime(deps.RAG),
-			"store_error": deps.Store.LoadError(),
+			"published": deps.Store.Published(),
+			"draft":     draft,
+			"defaults":  DefaultConfig(),
+			"live":      deps.Engine.Config(), // lo que el motor está usando AHORA
+			"runtime":   currentRuntime(deps.RAG),
+			// Cuánto pesa el borrador dentro del prompt, y el presupuesto que
+			// nos pusimos: mover controles tiene un coste y se ve.
+			"config_bytes":     configPromptBytes(draft),
+			"config_bytes_max": maxConfigPromptBytes,
+			"store_error":      deps.Store.LoadError(),
 			"catalogs": fiber.Map{
 				"sales_goals":   SalesGoalCatalog,
 				"safety_forbid": SafetyForbidCatalog,
@@ -172,6 +178,55 @@ func RegisterStudioRoutes(app *fiber.App, deps StudioDeps) {
 			return c.Status(422).JSON(fiber.Map{"errors": fieldErrs})
 		}
 		return c.JSON(fiber.Map{"draft": saved})
+	})
+
+	// Publicar (fase 4): el borrador pasa a ser la configuración viva. El orden
+	// importa — primero el disco, después el motor. Si la escritura falla no se
+	// aplica nada, así que lo que corre siempre es lo que quedó guardado.
+	app.Post("/api/studio/config/publish", func(c *fiber.Ctx) error {
+		var in struct {
+			Note string `json:"note"`
+		}
+		_ = c.BodyParser(&in) // la nota es opcional
+
+		published, fieldErrs, err := deps.Store.Publish(in.Note)
+		if err != nil {
+			return fiber.NewError(500, "no se pudo publicar: "+err.Error())
+		}
+		if len(fieldErrs) > 0 {
+			return c.Status(422).JSON(fiber.Map{"errors": fieldErrs})
+		}
+		deps.Engine.SetConfig(published)
+		return c.JSON(fiber.Map{
+			"published": published, "version": published.Version,
+			"config_bytes": configPromptBytes(published),
+		})
+	})
+
+	// Volver a una versión anterior. No borra historia: la versión recuperada
+	// entra como una versión NUEVA, así se puede deshacer el deshacer.
+	app.Post("/api/studio/config/rollback/:version", func(c *fiber.Ctx) error {
+		version, err := strconv.Atoi(c.Params("version"))
+		if err != nil {
+			return fiber.NewError(400, "versión inválida")
+		}
+		var in struct {
+			Note string `json:"note"`
+		}
+		_ = c.BodyParser(&in)
+
+		published, fieldErrs, err := deps.Store.Restore(version, in.Note)
+		if err != nil {
+			return fiber.NewError(404, err.Error())
+		}
+		if len(fieldErrs) > 0 {
+			return c.Status(422).JSON(fiber.Map{"errors": fieldErrs})
+		}
+		deps.Engine.SetConfig(published)
+		return c.JSON(fiber.Map{
+			"published": published, "version": published.Version,
+			"restored_from": version,
+		})
 	})
 
 	registerPlaygroundRoutes(app, deps.Playground)

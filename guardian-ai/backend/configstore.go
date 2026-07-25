@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -159,8 +160,39 @@ func (s *ConfigStore) SaveDraft(cfg AgentConfig) (AgentConfig, []FieldError, err
 func (s *ConfigStore) Publish(note string) (AgentConfig, []FieldError, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.publishLocked(s.draft, note)
+}
 
-	cfg := s.draft.Clone()
+// Restore vuelve a publicar una versión anterior. No reescribe la historia: la
+// versión recuperada entra como una versión NUEVA, así el historial sigue
+// contando lo que de verdad pasó y se puede deshacer el deshacer.
+func (s *ConfigStore) Restore(version int, note string) (AgentConfig, []FieldError, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var source *AgentConfig
+	if s.published.Version == version {
+		source = &s.published
+	}
+	for i := range s.history {
+		if s.history[i].Version == version {
+			source = &s.history[i]
+			break
+		}
+	}
+	if source == nil {
+		return AgentConfig{}, nil, fmt.Errorf("la versión %d no está en el historial", version)
+	}
+	if note == "" {
+		note = fmt.Sprintf("vuelta a la versión %d", version)
+	}
+	return s.publishLocked(*source, note)
+}
+
+// publishLocked es el camino común de publicar y recuperar: validar, versionar,
+// apilar la anterior, persistir y — solo si el disco aceptó — dejarla viva.
+func (s *ConfigStore) publishLocked(source AgentConfig, note string) (AgentConfig, []FieldError, error) {
+	cfg := source.Clone()
 	cfg.Note = note
 	cfg.Normalize()
 	if errs := cfg.Validate(); len(errs) > 0 {

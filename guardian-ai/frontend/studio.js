@@ -1,4 +1,4 @@
-// Agent Studio — consola de configuración del asesor (fases 1, 2 y 3 del plan
+// Agent Studio — consola de configuración del asesor (fases 1 a 4 del plan
 // 10_PLAN_AGENT_STUDIO.md).
 //
 // Principio del PRD: aquí no se escriben prompts. Se mueven controles de un
@@ -6,7 +6,7 @@
 // pantalla NO tiene ningún campo de texto libre salvo el nombre del agente, y
 // las frases que se muestran bajo cada control vienen del backend: si se
 // escribieran aquí, un día dirían una cosa y el modelo recibiría otra.
-const STUDIO_UI_VERSION = "1.1.0";
+const STUDIO_UI_VERSION = "1.2.0";
 console.log(`[guardian-ai] studio UI v${STUDIO_UI_VERSION}`);
 
 const $ = (id) => document.getElementById(id);
@@ -48,10 +48,56 @@ async function load() {
   }
 
   $("model").textContent = data.runtime.model;
+  renderBytes(data.config_bytes, data.config_bytes_max);
   renderRuntime(data.runtime);
   renderStates(data.runtime.states);
   renderAll();
   refreshPrompt();
+  loadVersions();
+}
+
+// El peso de la configuración dentro del prompt: mover controles cuesta tokens
+// en CADA turno, y eso se ve aquí en vez de descubrirse en la factura.
+function renderBytes(bytes, max) {
+  if (max) cfgBytesMax = max;
+  if (!bytes) return;
+  $("configBytes").textContent = `${bytes} de ${cfgBytesMax} bytes`;
+}
+
+async function loadVersions() {
+  const host = $("versions");
+  try {
+    const r = await fetch("/api/studio/versions");
+    if (!r.ok) return;
+    const { versions } = await r.json();
+    host.innerHTML = "";
+    if (!versions || !versions.length) {
+      host.innerHTML = `<div class="version empty">Todavía no se ha publicado ninguna versión: el asesor corre con los valores de fábrica.</div>`;
+      return;
+    }
+    for (const v of versions) host.appendChild(versionRow(v));
+  } catch (_) { /* el historial es informativo: su fallo no rompe la consola */ }
+}
+
+function versionRow(v) {
+  const row = document.createElement("div");
+  row.className = "version";
+  row.innerHTML = `<span class="v-num"></span><span class="v-note"></span><span class="v-date"></span>`;
+  row.querySelector(".v-num").textContent = `v${v.version}`;
+  const note = row.querySelector(".v-note");
+  if (v.note) note.textContent = v.note;
+  else note.innerHTML = `<em>sin nota</em>`;
+  row.querySelector(".v-date").textContent = v.updated_at && !v.updated_at.startsWith("0001")
+    ? new Date(v.updated_at).toLocaleDateString("es-CO")
+    : "fábrica";
+
+  const back = document.createElement("button");
+  back.className = "btn-ghost";
+  back.textContent = "Volver a esta";
+  back.title = `Republicar la versión ${v.version} como una versión nueva`;
+  back.addEventListener("click", () => rollback(v.version));
+  row.appendChild(back);
+  return row;
 }
 
 // ---------- render ----------
@@ -272,6 +318,7 @@ function markDirty() {
 function showFieldErrors(errors) {
   $("agentNameErr").hidden = true;
   $("goalsErr").hidden = true;
+  $("noteErr").hidden = true;
   for (const err of errors) {
     if (err.field === "persona.agent_name") {
       $("agentNameErr").textContent = err.message;
@@ -279,6 +326,9 @@ function showFieldErrors(errors) {
     } else if (err.field === "sales.goals") {
       $("goalsErr").textContent = err.message;
       $("goalsErr").hidden = false;
+    } else if (err.field === "note") {
+      $("noteErr").textContent = err.message;
+      $("noteErr").hidden = false;
     } else {
       $("statusChip").textContent = `${err.field}: ${err.message}`;
     }
@@ -316,6 +366,62 @@ async function saveDraft() {
 }
 
 $("saveBtn").addEventListener("click", saveDraft);
+
+// ---------- publicar ----------
+// Es lo único de la consola que cambia el comportamiento del asesor que atiende
+// clientes. Entra en el siguiente turno de cada conversación.
+async function afterPublish(body, message) {
+  published = body.published;
+  cfg = { ...body.published, status: "draft" };
+  dirty = false;
+  $("noteErr").hidden = true;
+  $("note").value = "";
+  renderAll();
+  renderBytes(body.config_bytes, cfgBytesMax);
+  refreshPrompt();
+  loadVersions();
+  const chip = $("publishedNote");
+  chip.textContent = message;
+  chip.hidden = false;
+  setTimeout(() => (chip.hidden = true), 6000);
+}
+
+let cfgBytesMax = 2048; // se refresca desde el backend al cargar
+
+$("publishBtn").addEventListener("click", async () => {
+  // Se publica lo GUARDADO: si hay cambios sueltos, se guardan primero.
+  if (dirty && !(await saveDraft())) return;
+
+  $("publishBtn").disabled = true;
+  try {
+    const r = await fetch("/api/studio/config/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: $("note").value.trim() }),
+    });
+    if (r.status === 422) {
+      const { errors } = await r.json();
+      showFieldErrors(errors || []);
+      return;
+    }
+    if (!r.ok) { $("statusChip").textContent = "no se pudo publicar"; return; }
+    const body = await r.json();
+    await afterPublish(body, `Publicada v${body.version}: el asesor la usa desde el siguiente turno`);
+  } finally {
+    $("publishBtn").disabled = false;
+  }
+});
+
+async function rollback(version) {
+  const r = await fetch(`/api/studio/config/rollback/${version}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: `vuelta a la versión ${version}` }),
+  });
+  if (!r.ok) { $("statusChip").textContent = `no se pudo volver a v${version}`; return; }
+  const body = await r.json();
+  await afterPublish(body, `Recuperada v${version} como v${body.version}`);
+}
 
 $("resetBtn").addEventListener("click", async () => {
   const r = await fetch("/api/studio/config");

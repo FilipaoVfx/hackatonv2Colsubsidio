@@ -396,6 +396,21 @@ func (c AgentConfig) Validate() []FieldError {
 	return errs
 }
 
+// maxConfigPromptBytes es el presupuesto declarado en el plan (§11) para lo que
+// aporta la CONFIGURACIÓN al prompt. No es una validación: los catálogos son
+// cerrados, así que el peor caso posible ya está acotado por construcción y
+// rechazar una combinación legal sería un error. Es un contrato que
+// TestConfigPromptBudget vigila cuando alguien añade objetivos o prohibiciones.
+const maxConfigPromptBytes = 2048
+
+// configPromptBytes mide cuánto pesa la configuración dentro del prompt:
+// persona, objetivos y límites. El resto (catálogo de la API, memoria del
+// cliente, documentación) es dato de negocio y no depende de los controles. El
+// Studio lo muestra para que el coste de cada decisión sea visible.
+func configPromptBytes(cfg AgentConfig) int {
+	return len(sectionPersona(cfg)) + len(sectionObjectives(cfg)) + len(sectionSafety(cfg))
+}
+
 func inCatalog(v string, catalog []string) bool {
 	for _, c := range catalog {
 		if c == v {

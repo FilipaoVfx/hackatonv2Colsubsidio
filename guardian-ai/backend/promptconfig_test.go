@@ -141,9 +141,68 @@ func TestPromptFallsBackToDefaultsOnZeroConfig(t *testing.T) {
 	}
 }
 
+// TestConfigPromptBudget recorre TODAS las combinaciones de tramo del
+// vocabulario cerrado (3 tramos × 5 perillas × longitud × nivel × emojis ×
+// humor, con el catálogo completo de objetivos y prohibiciones y el nombre más
+// largo posible) y comprueba que ni la peor de ellas se pasa del presupuesto
+// declarado en el plan. Es una promesa sobre el coste por turno: mover
+// controles no puede inflar el prompt sin que este test lo diga.
+func TestConfigPromptBudget(t *testing.T) {
+	buckets := []int{1, 5, 10} // bajo, medio, alto: cubren las tres frases
+	worst, worstCfg := 0, AgentConfig{}
+
+	base := DefaultConfig()
+	base.Persona.AgentName = strings.Repeat("Ñ", maxAgentNameLen) // el más caro en bytes
+	base.Sales.Goals = append([]string(nil), SalesGoalCatalog...)
+	base.Safety.Forbid = append([]string(nil), SafetyForbidCatalog...)
+
+	for _, empathy := range buckets {
+		for _, formality := range buckets {
+			for _, closeness := range buckets {
+				for _, persuasion := range buckets {
+					for _, proactivity := range buckets {
+						for _, length := range lengthOptions {
+							for _, level := range safetyLevels {
+								for _, emojis := range []bool{true, false} {
+									for _, humor := range []bool{true, false} {
+										cfg := base.Clone()
+										cfg.Persona.Empathy = empathy
+										cfg.Persona.Formality = formality
+										cfg.Persona.Closeness = closeness
+										cfg.Persona.Persuasion = persuasion
+										cfg.Persona.Proactivity = proactivity
+										cfg.Persona.Length = length
+										cfg.Persona.Emojis = emojis
+										cfg.Persona.Humor = humor
+										cfg.Safety.Level = level
+										if errs := cfg.Validate(); len(errs) > 0 {
+											t.Fatalf("una combinación del catálogo cerrado no valida: %v", errs)
+										}
+										if n := configPromptBytes(cfg); n > worst {
+											worst, worstCfg = n, cfg
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if worst > maxConfigPromptBytes {
+		t.Errorf("la peor configuración aporta %d bytes al prompt, presupuesto %d.\n"+
+			"Si el catálogo creció a propósito, sube maxConfigPromptBytes en el mismo commit y déjalo dicho en el plan.\nPeor caso: %+v",
+			worst, maxConfigPromptBytes, worstCfg)
+	}
+	t.Logf("peor caso: %d bytes de %d (%.0f%% del presupuesto)",
+		worst, maxConfigPromptBytes, 100*float64(worst)/float64(maxConfigPromptBytes))
+}
+
 // TestPromptSizeStaysReasonable: el prompt viaja en cada turno; una
-// configuración cargada no puede dispararlo. La cota se verificará también al
-// publicar (fase 4).
+// configuración cargada no puede dispararlo. El presupuesto de lo que aporta la
+// CONFIGURACIÓN lo vigila TestConfigPromptBudget.
 func TestPromptSizeStaysReasonable(t *testing.T) {
 	in := promptFixture()
 	cfg := DefaultConfig()

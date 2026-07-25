@@ -85,6 +85,19 @@
     .play-meta .mono { color: var(--brand); }
     .play-meta button { margin-left: auto; }
 
+    /* Historial de versiones: una línea por versión, como el reverso sellado
+       de la credencial. La viva se distingue por el sello, no por un color. */
+    .versions-head { margin-top: 16px; font-size: 11px; font-weight: 600; letter-spacing: .09em;
+                     text-transform: uppercase; color: var(--ink-soft); }
+    .version-list { margin-top: 4px; }
+    .version { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+    .version:last-child { border-bottom: 0; }
+    .version .v-num { font-family: var(--mono); font-size: 11px; color: var(--brand); flex: 0 0 auto; }
+    .version .v-note { flex: 1; min-width: 0; word-break: break-word; }
+    .version .v-note em { color: var(--ink-soft); font-style: normal; }
+    .version .v-date { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); flex: 0 0 auto; }
+    .version.empty { color: var(--ink-soft); }
+
     /* Actividad del motor durante el turno (vía /ws/studio) */
     .ev-mini { margin-top: 10px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; }
     .ev-mini div { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--rule-soft); }
@@ -202,11 +215,30 @@
         </div>
 
         <div class="st-actions">
-          <button class="btn-primary" id="saveBtn">Guardar borrador</button>
+          <button class="btn-ghost" id="saveBtn">Guardar borrador</button>
           <button class="btn-ghost" id="resetBtn">Restablecer a fábrica</button>
           <span class="saved" id="savedNote" hidden>Borrador guardado</span>
         </div>
-        <p class="hint" style="margin-top:8px">Publicar (aplicar el borrador al asesor que atiende clientes) llega en la siguiente fase. Hasta entonces el agente sigue corriendo con la versión viva.</p>
+
+        <!-- Publicación -->
+        <div class="cred st-section">
+          <div class="eyebrow">Publicación</div>
+          <h2>Poner en marcha</h2>
+          <p class="hint">Publicar aplica el borrador al asesor que atiende clientes. Entra en el <strong>siguiente turno</strong> de cada conversación, así ninguna respuesta cambia de tono a mitad. La nota queda en el historial y nunca llega al modelo.</p>
+          <div class="field">
+            <span class="k">Nota de versión</span><span class="rule-fill"></span>
+            <input type="text" class="v" id="note" maxlength="120" style="max-width:300px" placeholder="qué cambia y por qué" />
+          </div>
+          <div class="err" id="noteErr" hidden></div>
+          <div class="field"><span class="k">Peso en el prompt</span><span class="rule-fill"></span><span class="v mono" id="configBytes">—</span></div>
+          <div class="st-actions">
+            <button class="btn-primary" id="publishBtn">Publicar</button>
+            <span class="saved" id="publishedNote" hidden></span>
+          </div>
+
+          <div class="versions-head">Versiones publicadas</div>
+          <div id="versions" class="version-list"></div>
+        </div>
       </div>
 
       <!-- Columna derecha: probar el borrador / ver lo que recibe el modelo -->
@@ -263,6 +295,6 @@
     </section>
   </main>
 </div>
-<script src="/studio.js?v=1.1.0"></script>
+<script src="/studio.js?v=1.2.0"></script>
 </body>
 </html>

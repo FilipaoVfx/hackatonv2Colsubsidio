@@ -318,7 +318,7 @@ verificar que el siguiente turno de una conversación real ya trae la versión n
 | **F1 — Lectura** | ✅ 2026-07-25 | `studio.go` con `GET /api/studio/config` (publicado, borrador, defaults, config viva, catálogos y runtime real), `GET /api/studio/versions`, `GET /api/studio/prompt` (Prompt Inspector con el catálogo vivo de la API). Constantes del motor con nombre y expuestas en solo lectura (`guardianTemperature`, `ragTopK`, `entityConfidence`, `RAG.Chunks()`). Página `/studio` en el sistema de diseño existente + ruta en nginx y el ítem "Configuración" ya no es un placeholder |
 | **F2 — Diseño del comportamiento** | ✅ 2026-07-25 | Persona, objetivos y límites se componen desde la configuración (`sectionPersona`, `sectionObjectives`, `sectionSafety`), con frases por tramo servidas al frontend para que la consola muestre la instrucción exacta que recibirá el modelo. `PUT /api/studio/config/draft` con validación por campo (422). Controles: 5 sliders, longitud, emojis, humor, objetivos ordenables y checklist de límites |
 | **F3 — Playground aislado** | ✅ 2026-07-25 | `playground.go`: bus, hub, sesiones, motor y cliente de API propios. `POST /api/studio/playground/{start,message,reset}`, `GET /api/studio/playground` (declara si está activo y contra qué API) y `GET /ws/studio` con hub propio. Tope de 20 turnos por sesión, barrido por inactividad (1h) y coste por turno a la vista. En la consola: pestañas *Probar* / *Prompt*, hilo con el mismo lenguaje visual que `/chat`, escenarios rápidos y actividad del motor en vivo |
-| F4 — Publicar | pendiente | |
+| **F4 — Publicar** | ✅ 2026-07-25 | `POST /api/studio/config/publish` (valida, versiona, persiste y **después** aplica con `SetConfig`) y `POST /api/studio/config/rollback/:version`, que republica una versión anterior como versión NUEVA en vez de reescribir la historia. Historial en la consola con la nota de cada versión y un botón para volver. `configPromptBytes` expone cuánto pesa la configuración dentro del prompt, y la consola lo muestra junto al presupuesto |
 | F5 — Cierre | pendiente | |
 
 Nota de F2: el prompt por defecto **cambió** respecto al original — era inevitable
@@ -328,6 +328,15 @@ y los límites son explícitos. `testdata/prompt_default.golden` se regeneró en
 mismo commit para que el cambio se revise en el diff, y
 `TestHardRulesSurviveAnyConfig` recorre 27 configuraciones extremas comprobando
 que ninguna puede borrar las reglas duras.
+
+Nota de F4: el presupuesto de 2 KB para lo que aporta la configuración al
+prompt **no** se implementó como validación, sino como test
+(`TestConfigPromptBudget`). Rechazar al publicar una combinación legal del
+catálogo cerrado sería un error, no una protección: el peor caso ya está
+acotado por construcción. El test recorre las 8.748 combinaciones de tramo y
+hoy el peor caso son **1.862 bytes (91 % del presupuesto)** — queda poco
+margen, así que añadir un objetivo o una prohibición al catálogo obligará a
+subir la cota conscientemente y dejarlo dicho aquí.
 
 Nota de F3: el aislamiento cubre todo lo que está bajo nuestro control —
 entrega por WhatsApp, persistencia, `/api/calls`, sesiones vivas y la
