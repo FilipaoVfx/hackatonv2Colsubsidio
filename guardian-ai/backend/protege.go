@@ -76,10 +76,12 @@ func (e *ProtegeEngine) StartContact(ctx context.Context, phone string) (string,
 	e.sessions.Register(phone, callID)
 
 	opener := protegeGreeting
+	var openerButtons []string
 	if conv.NextQuestion != nil {
 		opener += "\n\n" + conv.NextQuestion.Text
+		openerButtons = buttonsForQuestion(conv.NextQuestion)
 	}
-	e.sendAgent(callID, phone, opener)
+	e.sendAgentWithButtons(callID, phone, opener, openerButtons)
 
 	// Degenerate case: nothing to ask, already recommendable.
 	if conv.NextQuestion == nil && conv.CanGenerateRecommendation {
@@ -136,7 +138,7 @@ func (e *ProtegeEngine) HandleInbound(ctx context.Context, phone, text string) (
 	e.mu.Unlock()
 
 	if conv.NextQuestion != nil {
-		e.sendAgent(convID, phone, conv.NextQuestion.Text)
+		e.sendAgentWithButtons(convID, phone, conv.NextQuestion.Text, buttonsForQuestion(conv.NextQuestion))
 		return convID, nil
 	}
 	if conv.CanGenerateRecommendation || conv.Status == "ready_for_recommendation" || conv.Status == "completed" {
@@ -200,12 +202,22 @@ func (e *ProtegeEngine) close(convID string) {
 // sendAgent emits the outbound agent message (transcript + MESSAGE_SENT). The
 // MESSAGE_SENT consumer in main.go delivers it via Kapso when configured.
 func (e *ProtegeEngine) sendAgent(convID, phone, text string) {
+	e.sendAgentWithButtons(convID, phone, text, nil)
+}
+
+// sendAgentWithButtons igual que sendAgent pero adjunta botones quick-reply en
+// el payload de MESSAGE_SENT (el consumer los entrega como mensaje interactivo).
+func (e *ProtegeEngine) sendAgentWithButtons(convID, phone, text string, buttons []string) {
 	e.bus.Publish(convID, TRANSCRIPT_UPDATED, "whatsapp_adapter", map[string]interface{}{
 		"role": "agent", "text": text, "is_final": true,
 	})
-	e.bus.Publish(convID, MESSAGE_SENT, "whatsapp_adapter", map[string]interface{}{
+	payload := map[string]interface{}{
 		"text": text, "channel": "whatsapp", "status": "queued", "to": phone, "wa_message_id": "",
-	})
+	}
+	if len(buttons) > 0 {
+		payload["buttons"] = buttons
+	}
+	e.bus.Publish(convID, MESSAGE_SENT, "whatsapp_adapter", payload)
 	e.bus.Publish(convID, STATE_CHANGED, "conversation_engine", map[string]interface{}{"from": "RESPONDING", "to": "LISTENING"})
 }
 
@@ -256,6 +268,44 @@ func coerceAnswer(fieldType, text string) interface{} {
 	default: // text, textarea, email, phone, date, radio, select, multi_select
 		return t
 	}
+}
+
+// buttonsForQuestion returns WhatsApp quick-reply button titles for questions
+// that are easier to tap than to type: booleans (Sí/No) and select/radio with
+// 2-3 options. nil means "send as plain text" (free text, numbers, >3 options
+// — WhatsApp allows max 3 buttons; multi_select needs typed input anyway).
+// Titles use the option VALUES (lowercase) so the tapped answer passes the
+// API's strict allowed-values validation unchanged. Pure — unit-testable.
+func buttonsForQuestion(q *ProtegeQuestion) []string {
+	if q == nil {
+		return nil
+	}
+	switch q.FieldType {
+	case "boolean":
+		return []string{"Sí", "No"}
+	case "select", "radio":
+		values := make([]string, 0, len(q.Options))
+		for _, o := range q.Options {
+			switch opt := o.(type) {
+			case string: // mock style: ["perro","gato"]
+				values = append(values, opt)
+			case map[string]interface{}: // API real: [{"value":"perro","label":"Perro"}]
+				if v, ok := opt["value"].(string); ok && v != "" {
+					values = append(values, v)
+				}
+			}
+		}
+		if len(values) < 2 || len(values) > 3 {
+			return nil
+		}
+		for _, v := range values {
+			if len(v) > 20 { // límite de título de botón de Meta
+				return nil
+			}
+		}
+		return values
+	}
+	return nil
 }
 
 // recFields best-effort extracts a display name and reason from an untyped

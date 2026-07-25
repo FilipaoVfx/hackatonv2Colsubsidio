@@ -100,17 +100,81 @@ func (k *KapsoAdapter) Send(ctx context.Context, to, body string) (string, error
 	return out.Messages[0].ID, nil
 }
 
+// SendButtons delivers an interactive quick-reply button message (Meta Cloud
+// API "interactive"/"button"). WhatsApp allows 1-3 buttons per message and
+// titles of max 20 chars — callers must enforce both (buttonsForQuestion
+// does). The button title comes back as inbound text when tapped (see
+// parseKapsoInbound), so no extra plumbing is needed downstream.
+func (k *KapsoAdapter) SendButtons(ctx context.Context, to, body string, buttons []string) (string, error) {
+	if len(buttons) == 0 || len(buttons) > 3 {
+		return k.Send(ctx, to, body) // fuera de rango: degrada a texto plano
+	}
+	replies := make([]map[string]interface{}, len(buttons))
+	for i, title := range buttons {
+		replies[i] = map[string]interface{}{
+			"type":  "reply",
+			"reply": map[string]string{"id": fmt.Sprintf("btn_%d", i), "title": title},
+		}
+	}
+	payload := map[string]interface{}{
+		"messaging_product": "whatsapp",
+		"to":                kapsoDigits(to),
+		"type":              "interactive",
+		"interactive": map[string]interface{}{
+			"type":   "button",
+			"body":   map[string]string{"text": body},
+			"action": map[string]interface{}{"buttons": replies},
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	endpoint := k.base + "/meta/whatsapp/v24.0/" + k.phoneNumberID + "/messages"
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-API-Key", k.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("kapso: read body: %w", err)
+	}
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("kapso %d: %s", resp.StatusCode, string(data[:min(len(data), 300)]))
+	}
+	return "", nil
+}
+
 // ---- inbound webhook parsing (pure functions — unit-testable, no network) ----
 
 type kapsoText struct {
 	Body string `json:"body"`
 }
 
+// kapsoButtonReply mirrors interactive.button_reply: user tapped a quick-reply
+// button. Title is the visible label (what we treat as the user's answer).
+type kapsoButtonReply struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+type kapsoInteractive struct {
+	Type        string            `json:"type"`
+	ButtonReply *kapsoButtonReply `json:"button_reply"`
+}
+
 type kapsoMessage struct {
-	ID   string    `json:"id"`
-	Type string    `json:"type"`
-	From string    `json:"from"`
-	Text *kapsoText `json:"text"`
+	ID          string            `json:"id"`
+	Type        string            `json:"type"`
+	From        string            `json:"from"`
+	Text        *kapsoText        `json:"text"`
+	Interactive *kapsoInteractive `json:"interactive"`
 }
 
 type kapsoConversation struct {
@@ -162,6 +226,12 @@ func parseKapsoInbound(p kapsoWebhookPayload) (from, text, msgID string) {
 	}
 	if p.Message.Type == "text" && p.Message.Text != nil {
 		text = strings.TrimSpace(p.Message.Text.Body)
+	}
+	// Quick-reply button tap: the title becomes the inbound text so it flows
+	// through the exact same pipeline as a typed answer.
+	if p.Message.Type == "interactive" && p.Message.Interactive != nil &&
+		p.Message.Interactive.ButtonReply != nil {
+		text = strings.TrimSpace(p.Message.Interactive.ButtonReply.Title)
 	}
 	return from, text, p.Message.ID
 }

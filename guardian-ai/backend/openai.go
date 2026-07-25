@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -19,9 +21,17 @@ import (
 
 const (
 	openAIURL      = "https://api.openai.com/v1/chat/completions"
+	openRouterURL  = "https://openrouter.ai/api/v1/chat/completions"
 	model          = "gpt-4o"
 	priceInPerTok  = 2.50 / 1_000_000  // USD per input token
 	priceOutPerTok = 10.0 / 1_000_000  // USD per output token
+
+	// fallbackModel por defecto: anthropic/claude-sonnet-4 — clase GPT-4o
+	// (razonamiento comparable, español sólido, structured outputs soportados
+	// por OpenRouter) y en infraestructura DISTINTA a OpenAI: una caída de
+	// OpenAI no la tumban juntas. Overridable con OPENROUTER_MODEL
+	// (p.ej. "openai/gpt-4o" para el modelo idéntico, "google/gemini-2.5-pro").
+	fallbackModel = "anthropic/claude-sonnet-4"
 )
 
 var systemPrompt = `Eres Guardian AI, un asesor comercial de seguros por voz para Colombia (Colsubsidio).
@@ -83,12 +93,103 @@ type Decision struct {
 }
 
 type LLMClient struct {
-	key  string
-	http *http.Client
+	key     string
+	http    *http.Client
+	oaURL   string // primario (OpenAI); field para inyectar httptest en tests
+	orKey   string // OpenRouter (fallback); vacío = sin fallback
+	orURL   string
+	orModel string
 }
 
 func NewLLMClient() *LLMClient {
-	return &LLMClient{key: os.Getenv("OPENAI_API_KEY"), http: &http.Client{Timeout: 40 * time.Second}}
+	orModel := os.Getenv("OPENROUTER_MODEL")
+	if orModel == "" {
+		orModel = fallbackModel
+	}
+	orURL := strings.TrimRight(os.Getenv("OPENROUTER_BASE_URL"), "/")
+	if orURL == "" {
+		orURL = openRouterURL
+	} else {
+		orURL += "/chat/completions"
+	}
+	return &LLMClient{
+		key:     os.Getenv("OPENAI_API_KEY"),
+		http:    &http.Client{Timeout: 40 * time.Second},
+		oaURL:   openAIURL,
+		orKey:   os.Getenv("OPENROUTER_API_KEY"),
+		orURL:   orURL,
+		orModel: orModel,
+	}
+}
+
+// chatResponse es la forma común de chat completions (OpenAI y OpenRouter
+// comparten el contrato; por eso el fallback es un swap de endpoint+modelo).
+type chatResponse struct {
+	Choices []struct {
+		Message oaMessage `json:"message"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// post ejecuta UNA llamada chat/completions contra url con key.
+func (c *LLMClient) post(ctx context.Context, url, key string, body map[string]interface{}) (*chatResponse, error) {
+	raw, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out chatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Error != nil {
+		return nil, fmt.Errorf("%s", out.Error.Message)
+	}
+	if len(out.Choices) == 0 {
+		return nil, fmt.Errorf("empty response")
+	}
+	return &out, nil
+}
+
+// chat intenta OpenAI primero; si falla (red, 5xx, 429, respuesta vacía) y hay
+// OPENROUTER_API_KEY, reintenta el MISMO request en OpenRouter con orModel
+// (claude-sonnet-4 por defecto). Sin key de fallback conserva el comportamiento
+// original: un solo intento y error propagado.
+func (c *LLMClient) chat(ctx context.Context, body map[string]interface{}) (*chatResponse, error) {
+	out, err := c.post(ctx, c.oaURL, c.key, body)
+	if err == nil {
+		return out, nil
+	}
+	primaryErr := err
+	if c.orKey == "" {
+		return nil, fmt.Errorf("openai: %w", primaryErr)
+	}
+	fb := make(map[string]interface{}, len(body)+1)
+	for k, v := range body {
+		fb[k] = v
+	}
+	fb["model"] = c.orModel
+	out, err = c.post(ctx, c.orURL, c.orKey, fb)
+	if err != nil {
+		return nil, fmt.Errorf("openai: %v | openrouter(%s): %v", primaryErr, c.orModel, err)
+	}
+	log.Printf("llm: OpenAI falló (%v) — turno respondido por OpenRouter %s", primaryErr, c.orModel)
+	return out, nil
 }
 
 func (c *LLMClient) Decide(ctx context.Context, history []oaMessage) (*Decision, error) {
@@ -98,38 +199,10 @@ func (c *LLMClient) Decide(ctx context.Context, history []oaMessage) (*Decision,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages":        append([]oaMessage{{Role: "system", Content: systemPrompt}}, history...),
 	}
-	raw, _ := json.Marshal(body)
-	req, _ := http.NewRequestWithContext(ctx, "POST", openAIURL, bytes.NewReader(raw))
-	req.Header.Set("Authorization", "Bearer "+c.key)
-	req.Header.Set("Content-Type", "application/json")
-
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	out, err := c.chat(ctx, body)
 	if err != nil {
 		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var out struct {
-		Choices []struct {
-			Message oaMessage `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	if out.Error != nil {
-		return nil, fmt.Errorf("openai: %s", out.Error.Message)
-	}
-	if len(out.Choices) == 0 {
-		return nil, fmt.Errorf("openai: empty response")
 	}
 
 	var d Decision
@@ -220,38 +293,10 @@ func (c *LLMClient) DecideGuardian(ctx context.Context, system string, history [
 		},
 		"messages": append([]oaMessage{{Role: "system", Content: system}}, history...),
 	}
-	raw, _ := json.Marshal(body)
-	req, _ := http.NewRequestWithContext(ctx, "POST", openAIURL, bytes.NewReader(raw))
-	req.Header.Set("Authorization", "Bearer "+c.key)
-	req.Header.Set("Content-Type", "application/json")
-
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	out, err := c.chat(ctx, body)
 	if err != nil {
 		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var out struct {
-		Choices []struct {
-			Message oaMessage `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	if out.Error != nil {
-		return nil, fmt.Errorf("openai: %s", out.Error.Message)
-	}
-	if len(out.Choices) == 0 {
-		return nil, fmt.Errorf("openai: empty response")
 	}
 
 	var d GuardianDecision

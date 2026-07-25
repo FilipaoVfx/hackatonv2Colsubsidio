@@ -173,6 +173,26 @@ func main() {
 		if text == "" {
 			return
 		}
+		// Quick-reply buttons (UX): los motores adjuntan "buttons" ([]string)
+		// cuando la pregunta es simple (Sí/No, select ≤3). El tap del usuario
+		// vuelve como texto normal por el webhook.
+		var buttons []string
+		switch b := ev.Payload["buttons"].(type) {
+		case []string:
+			buttons = b
+		case []interface{}:
+			for _, item := range b {
+				if s, ok := item.(string); ok {
+					buttons = append(buttons, s)
+				}
+			}
+		}
+		if len(buttons) > 0 {
+			if _, err := wa.SendButtons(context.Background(), to, text, buttons); err != nil {
+				log.Printf("whatsapp buttons send failed (call=%s): %v", ev.CallID[:8], err)
+			}
+			return
+		}
 		if _, err := wa.Send(context.Background(), to, text); err != nil {
 			log.Printf("whatsapp send failed (call=%s): %v", ev.CallID[:8], err)
 		}
