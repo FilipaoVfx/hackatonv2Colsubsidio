@@ -1,0 +1,789 @@
+{
+  "fuente_principal": {
+    "organizacion": "Colsubsidio",
+    "tipo_portafolio": "seguros y asistencias",
+    "fecha_consulta": "2026-07-25",
+    "evidencia": [
+      {
+        "tipo": "ayuda",
+        "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+        "id_cita": "web:11"
+      },
+      {
+        "tipo": "pagina_portafolio",
+        "url": "https://www.colsubsidio.com/seguros/familiares",
+        "id_cita": "web:21"
+      },
+      {
+        "tipo": "pagina_portafolio",
+        "url": "https://www.colsubsidio.com/seguros/vehiculos/carro",
+        "id_cita": "page:1"
+      },
+      {
+        "tipo": "pdf_tarifas",
+        "url": "https://cms.colsubsidio.com/sites/default/files/Documentos/colsubsidio/2026/cupo-credito-colsubsidio-carta-tarifas.pdf",
+        "id_cita": "web:12"
+      }
+    ]
+  },
+  "resumen_portafolio": {
+    "descripcion": "Colsubsidio publica un portafolio de seguros y asistencias en alianza con aseguradoras del país, orientado a proteger familia, patrimonio, crédito y empresas.",
+    "segmentos": [
+      "familia",
+      "patrimonio",
+      "asistencias",
+      "credito",
+      "empresas"
+    ]
+  },
+  "productos": [
+    {
+      "id_producto": "colsubsidio-seguro-vida",
+      "nombre_comercial": "Seguro de vida",
+      "segmento": "familia",
+      "subsegmento": "proteccion_personal",
+      "descripcion_comercial": "Respaldo económico para los beneficiarios ante fallecimiento, incapacidad permanente o enfermedades graves.",
+      "coberturas_mencionadas": [
+        "fallecimiento",
+        "incapacidad",
+        "proteccion_economica"
+      ],
+      "beneficios_destacados": [
+        "tranquilidad_familiar",
+        "respaldo_financiero"
+      ],
+      "canal_ofrecimiento": [
+        "pagina_web",
+        "asesoria"
+      ],
+      "modalidad": "individual_familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "cobertura_amplia"
+      ],
+      "condiciones_no_publicadas": [
+        "deducibles",
+        "exclusiones",
+        "topes",
+        "periodos_de_carencia",
+        "suma_asegurada"
+      ],
+      "fuentes": [
+        {
+          "url": "https://www.colsubsidio.com/seguros/familiares/vida",
+          "cita": "web:7"
+        },
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-seguro-vida-ahorro",
+      "nombre_comercial": "Seguro Vida y Ahorro",
+      "segmento": "familia",
+      "subsegmento": "proteccion_ahorro",
+      "descripcion_comercial": "Combina protección para la familia con acumulación de ahorro a lo largo del tiempo.",
+      "coberturas_mencionadas": [
+        "proteccion_familiar",
+        "ahorro"
+      ],
+      "beneficios_destacados": [
+        "doble_beneficio",
+        "crecimiento_del_ahorro"
+      ],
+      "canal_ofrecimiento": [
+        "pagina_web"
+      ],
+      "modalidad": "individual",
+      "alianza": "colsubsidio_y_aliados",
+      "condiciones_publicadas": [
+        "protege_y_ahorra"
+      ],
+      "condiciones_no_publicadas": [
+        "rentabilidad",
+        "plazo",
+        "rescates",
+        "exclusiones",
+        "suma_asegurada"
+      ],
+      "fuentes": [
+        {
+          "url": "https://www.colsubsidio.com/seguros/familiares/vida-ahorro",
+          "cita": "web:8"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-accidentes-personales",
+      "nombre_comercial": "Accidentes personales",
+      "segmento": "familia",
+      "subsegmento": "proteccion_personal",
+      "descripcion_comercial": "Seguro orientado a eventos accidentales dentro del portafolio familiar.",
+      "coberturas_mencionadas": [
+        "accidente",
+        "incapacidad_total_o_permanente",
+        "desmembracion_por_accidente"
+      ],
+      "beneficios_destacados": [
+        "respaldo_economico"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_familiar",
+        "tarifas_credito"
+      ],
+      "modalidad": "individual_familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "cobertura_por_accidente"
+      ],
+      "condiciones_no_publicadas": [
+        "topes",
+        "deducibles",
+        "exclusiones",
+        "periodos_de_carencia"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        },
+        {
+          "url": "https://cms.colsubsidio.com/sites/default/files/Documentos/colsubsidio/2026/cupo-credito-colsubsidio-carta-tarifas.pdf",
+          "cita": "web:12"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-renta-hospitalizacion",
+      "nombre_comercial": "Renta por hospitalización",
+      "segmento": "familia",
+      "subsegmento": "proteccion_ingresos",
+      "descripcion_comercial": "Producto del portafolio familiar orientado a mitigar impacto económico durante hospitalización.",
+      "coberturas_mencionadas": [
+        "hospitalizacion"
+      ],
+      "beneficios_destacados": [
+        "apoyo_financiero_temporal"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_familiar"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "monto_diario",
+        "duracion_maxima",
+        "deducibles",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-diagnostico-cancer",
+      "nombre_comercial": "Diagnóstico positivo de cáncer",
+      "segmento": "familia",
+      "subsegmento": "enfermedades_graves",
+      "descripcion_comercial": "Cobertura asociada al diagnóstico positivo de cáncer dentro del portafolio familiar.",
+      "coberturas_mencionadas": [
+        "diagnostico_de_cancer"
+      ],
+      "beneficios_destacados": [
+        "respaldo_financiero"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_familiar"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "definicion_de_evento",
+        "topes",
+        "periodos_de_carencia",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-poliza-salud",
+      "nombre_comercial": "Póliza de salud",
+      "segmento": "familia",
+      "subsegmento": "salud",
+      "descripcion_comercial": "Protección familiar integral enfocada en salud y bienestar.",
+      "coberturas_mencionadas": [
+        "salud",
+        "atencion_medica"
+      ],
+      "beneficios_destacados": [
+        "bienestar",
+        "proteccion_familiar"
+      ],
+      "canal_ofrecimiento": [
+        "pagina_web",
+        "portafolio_familiar"
+      ],
+      "modalidad": "familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "proteccion_familiar_integral"
+      ],
+      "condiciones_no_publicadas": [
+        "red_medica",
+        "topes",
+        "carencias",
+        "exclusiones",
+        "copagos"
+      ],
+      "fuentes": [
+        {
+          "url": "https://www.colsubsidio.com/seguros/familiares/poliza-salud",
+          "cita": "web:2"
+        },
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-exequial-familiar",
+      "nombre_comercial": "Exequial familiar",
+      "segmento": "familia",
+      "subsegmento": "exequias",
+      "descripcion_comercial": "Cobertura para gastos y apoyo en servicios funerarios.",
+      "coberturas_mencionadas": [
+        "gastos_funerarios",
+        "servicios_exequiales"
+      ],
+      "beneficios_destacados": [
+        "respaldo_en_momentos_criticos"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_familiar"
+      ],
+      "modalidad": "familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "alcance_del_servicio",
+        "topes",
+        "carencias",
+        "cobertura_geografica"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        },
+        {
+          "url": "https://www.colsubsidio.com/seguros/familiares",
+          "cita": "web:21"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-seguro-mascotas",
+      "nombre_comercial": "Seguro de mascotas",
+      "segmento": "familia",
+      "subsegmento": "mascotas",
+      "descripcion_comercial": "Cobertura para proteger a las mascotas dentro del portafolio familiar.",
+      "coberturas_mencionadas": [
+        "mascotas"
+      ],
+      "beneficios_destacados": [
+        "tranquilidad"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_familiar",
+        "asistencias"
+      ],
+      "modalidad": "individual_familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "tipos_de_mascotas",
+        "topes",
+        "exclusiones",
+        "edad_minima_maxima"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-autos-motos",
+      "nombre_comercial": "Todo riesgo autos y motos",
+      "segmento": "patrimonio",
+      "subsegmento": "vehiculos",
+      "descripcion_comercial": "Protección patrimonial para vehículos particulares.",
+      "coberturas_mencionadas": [
+        "autos",
+        "motos",
+        "daños_a_terceros",
+        "robo",
+        "accidentes"
+      ],
+      "beneficios_destacados": [
+        "proteccion_del_vehiculo"
+      ],
+      "canal_ofrecimiento": [
+        "pagina_web",
+        "patrimonio"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "todo_riesgo"
+      ],
+      "condiciones_no_publicadas": [
+        "deducibles",
+        "vigencia",
+        "coberturas_adicionales",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        },
+        {
+          "url": "https://www.colsubsidio.com/seguros/vehiculos/carro",
+          "cita": "page:1"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-hogar",
+      "nombre_comercial": "Todo riesgo hogar",
+      "segmento": "patrimonio",
+      "subsegmento": "hogar",
+      "descripcion_comercial": "Protección del hogar y sus contenidos ante distintos riesgos.",
+      "coberturas_mencionadas": [
+        "hogar",
+        "contenido",
+        "proteccion_patrimonial"
+      ],
+      "beneficios_destacados": [
+        "respaldo_del_hogar"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_patrimonial"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "todo_riesgo"
+      ],
+      "condiciones_no_publicadas": [
+        "deducibles",
+        "valor_asegurado",
+        "exclusiones",
+        "riesgos_especificos"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-bicicletas",
+      "nombre_comercial": "Bicicletas",
+      "segmento": "patrimonio",
+      "subsegmento": "movilidad",
+      "descripcion_comercial": "Cobertura patrimonial para bicicletas.",
+      "coberturas_mencionadas": [
+        "bicicletas"
+      ],
+      "beneficios_destacados": [
+        "proteccion_de_movilidad"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_patrimonial"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "tipos_de_bici",
+        "valor_maximo",
+        "robo",
+        "accidentes",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-arrendamiento",
+      "nombre_comercial": "Arrendamiento",
+      "segmento": "patrimonio",
+      "subsegmento": "contratos",
+      "descripcion_comercial": "Seguro vinculado a contratos de arriendo.",
+      "coberturas_mencionadas": [
+        "arrendamiento"
+      ],
+      "beneficios_destacados": [
+        "respaldo_contractual"
+      ],
+      "canal_ofrecimiento": [
+        "portafolio_patrimonial"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "canon_cubierto",
+        "garantia",
+        "exclusiones",
+        "vigencia"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-asistencia-medica-familiar",
+      "nombre_comercial": "Asistencia médica familiar",
+      "segmento": "asistencias",
+      "subsegmento": "salud",
+      "descripcion_comercial": "Servicio de asistencia médica familiar con acceso a médicos a domicilio y orientación en salud.",
+      "coberturas_mencionadas": [
+        "médicos_a_domicilio",
+        "orientacion_medica",
+        "atencion_24_7"
+      ],
+      "beneficios_destacados": [
+        "atencion_inmediata",
+        "comodidad"
+      ],
+      "canal_ofrecimiento": [
+        "pagina_web",
+        "asistencias"
+      ],
+      "modalidad": "familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "24_7",
+        "medicos_a_domicilio_en_bogota"
+      ],
+      "condiciones_no_publicadas": [
+        "cobertura_geografica_completa",
+        "tiempos_de_respuesta",
+        "limites_por_evento"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        },
+        {
+          "url": "https://www.colsubsidio.com/seguros/familiares",
+          "cita": "web:21"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-asistencia-mascotas",
+      "nombre_comercial": "Asistencia mascotas",
+      "segmento": "asistencias",
+      "subsegmento": "mascotas",
+      "descripcion_comercial": "Asistencia enfocada en el cuidado y apoyo para mascotas.",
+      "coberturas_mencionadas": [
+        "mascotas"
+      ],
+      "beneficios_destacados": [
+        "cuidado_integral"
+      ],
+      "canal_ofrecimiento": [
+        "asistencias"
+      ],
+      "modalidad": "individual_familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "servicios_incluidos",
+        "limites",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-asistencia-juridica",
+      "nombre_comercial": "Asistencia jurídica",
+      "segmento": "asistencias",
+      "subsegmento": "legal",
+      "descripcion_comercial": "Servicio de apoyo legal o jurídico dentro del portafolio de asistencias.",
+      "coberturas_mencionadas": [
+        "asistencia_legal",
+        "asistencia_juridica"
+      ],
+      "beneficios_destacados": [
+        "orientacion_legal"
+      ],
+      "canal_ofrecimiento": [
+        "asistencias"
+      ],
+      "modalidad": "individual_familiar",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [],
+      "condiciones_no_publicadas": [
+        "alcance",
+        "topes",
+        "horarios",
+        "casos_cubiertos"
+      ],
+      "fuentes": [
+        {
+          "url": "https://ayuda.colsubsidio.com/que-seguros-asistencias-ofrece-colsubsidio",
+          "cita": "web:11"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-seguro-vida-deudor",
+      "nombre_comercial": "Seguro de vida deudor",
+      "segmento": "credito",
+      "subsegmento": "proteccion_obligaciones",
+      "descripcion_comercial": "Protege la deuda del titular en caso de fallecimiento o incapacidad.",
+      "coberturas_mencionadas": [
+        "fallecimiento",
+        "incapacidad_total_o_permanente",
+        "respaldo_deuda"
+      ],
+      "beneficios_destacados": [
+        "mantener_obligaciones_al_dia"
+      ],
+      "canal_ofrecimiento": [
+        "productos_de_credito",
+        "carta_tarifas"
+      ],
+      "modalidad": "asociado_a_credito",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "respalda_la_deuda"
+      ],
+      "condiciones_no_publicadas": [
+        "suma_asegurada",
+        "condiciones_de_endoso",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://cms.colsubsidio.com/sites/default/files/Documentos/colsubsidio/2026/cupo-credito-colsubsidio-carta-tarifas.pdf",
+          "cita": "web:12"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-seguro-desempleo",
+      "nombre_comercial": "Seguro de desempleo",
+      "segmento": "credito",
+      "subsegmento": "proteccion_ingresos",
+      "descripcion_comercial": "Cubre cuotas del crédito ante desempleo involuntario o incapacidad temporal.",
+      "coberturas_mencionadas": [
+        "desempleo_involuntario",
+        "incapacidad_temporal",
+        "hasta_9_cuotas"
+      ],
+      "beneficios_destacados": [
+        "evitar_mora",
+        "proteccion_financiera"
+      ],
+      "canal_ofrecimiento": [
+        "productos_de_credito",
+        "carta_tarifas"
+      ],
+      "modalidad": "asociado_a_credito",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "cubre_hasta_9_cuotas"
+      ],
+      "condiciones_no_publicadas": [
+        "periodo_de_espera",
+        "requisitos_laborales",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://cms.colsubsidio.com/sites/default/files/Documentos/colsubsidio/2026/cupo-credito-colsubsidio-carta-tarifas.pdf",
+          "cita": "web:12"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-seguro-incendio",
+      "nombre_comercial": "Seguro de incendio",
+      "segmento": "credito",
+      "subsegmento": "patrimonio_vinculado_a_credito",
+      "descripcion_comercial": "Protege el patrimonio frente a incendio y fenómenos naturales.",
+      "coberturas_mencionadas": [
+        "incendio",
+        "fenomenos_naturales"
+      ],
+      "beneficios_destacados": [
+        "proteccion_patrimonial"
+      ],
+      "canal_ofrecimiento": [
+        "productos_de_credito"
+      ],
+      "modalidad": "asociado_a_credito",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "proteccion_frente_a_incendio"
+      ],
+      "condiciones_no_publicadas": [
+        "valor_asegurado",
+        "deducibles",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://cms.colsubsidio.com/sites/default/files/Documentos/colsubsidio/2026/cupo-credito-colsubsidio-carta-tarifas.pdf",
+          "cita": "web:12"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-asistencia-medica-viajes",
+      "nombre_comercial": "Asistencia médica en viajes",
+      "segmento": "credito",
+      "subsegmento": "viajes",
+      "descripcion_comercial": "Asistencia 24/7 con cobertura internacional y apoyo en gastos médicos durante viajes.",
+      "coberturas_mencionadas": [
+        "atencion_24_7",
+        "cobertura_internacional",
+        "gastos_medicos"
+      ],
+      "beneficios_destacados": [
+        "tranquilidad_en_viajes"
+      ],
+      "canal_ofrecimiento": [
+        "productos_de_credito"
+      ],
+      "modalidad": "individual",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "asistencia_24_7"
+      ],
+      "condiciones_no_publicadas": [
+        "limites_por_evento",
+        "paises_cubiertos",
+        "exclusiones"
+      ],
+      "fuentes": [
+        {
+          "url": "https://cms.colsubsidio.com/sites/default/files/Documentos/colsubsidio/2026/cupo-credito-colsubsidio-carta-tarifas.pdf",
+          "cita": "web:12"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-empresas-colectivo",
+      "nombre_comercial": "Seguros colectivos para empresas",
+      "segmento": "empresas",
+      "subsegmento": "bienestar_corporativo",
+      "descripcion_comercial": "Soluciones colectivas para empresas con pólizas de salud, exequiales y otras coberturas.",
+      "coberturas_mencionadas": [
+        "salud",
+        "exequial",
+        "coberturas_colectivas"
+      ],
+      "beneficios_destacados": [
+        "beneficios_personalizados",
+        "seguridad_integral"
+      ],
+      "canal_ofrecimiento": [
+        "portal_empresas",
+        "asesoria_comercial"
+      ],
+      "modalidad": "colectivo",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "tarifas_competitivas",
+        "ofertas_a_la_medida"
+      ],
+      "condiciones_no_publicadas": [
+        "numero_minimo_de_asegurados",
+        "topes",
+        "exclusiones",
+        "condiciones_de_emision"
+      ],
+      "fuentes": [
+        {
+          "url": "https://www.colsubsidio.com/empresas/bienestar/seguros",
+          "cita": "web:6"
+        }
+      ]
+    },
+    {
+      "id_producto": "colsubsidio-empresas-salud-colectiva",
+      "nombre_comercial": "Póliza colectiva de salud para empresas",
+      "segmento": "empresas",
+      "subsegmento": "salud",
+      "descripcion_comercial": "Cobertura médica colectiva con acceso preferencial a clínicas, especialistas y servicios para empleados y familias.",
+      "coberturas_mencionadas": [
+        "salud",
+        "acceso_preferencial",
+        "especialistas"
+      ],
+      "beneficios_destacados": [
+        "bienestar_del_equipo"
+      ],
+      "canal_ofrecimiento": [
+        "portal_empresas"
+      ],
+      "modalidad": "colectivo",
+      "alianza": "aseguradoras_del_pais",
+      "condiciones_publicadas": [
+        "cobertura_medica_para_empleados_y_familias"
+      ],
+      "condiciones_no_publicadas": [
+        "carencias",
+        "topes",
+        "red_medica_exacta",
+        "copagos"
+      ],
+      "fuentes": [
+        {
+          "url": "https://www.colsubsidio.com/empresas/bienestar/seguros/colectivo-salud",
+          "cita": "web:9"
+        }
+      ]
+    }
+  ],
+  "notas_calidad": [
+    "La fuente pública mezcla fichas comerciales con páginas de ayuda y no siempre publica condiciones técnicas completas.",
+    "Para RAG conviene marcar como null los campos no explicitados en la fuente y diferenciar descripcion_comercial de condiciones_contractuales.",
+    "Hay productos repetidos o redundantes entre portafolio familiar, vehicular y ayudas; se recomienda deduplicación semántica."
+  ]
+}
