@@ -317,7 +317,7 @@ verificar que el siguiente turno de una conversación real ya trae la versión n
 | **F0 — Cimientos invisibles** | ✅ 2026-07-25 | `agentconfig.go` (modelo, catálogos cerrados, defaults, validación por campo), `configstore.go` (archivo atómico + réplica opcional en Postgres, degradación honesta), snapshot atómico en `GuardianEngine` (`SetConfig`/`Config`), `config_version` estampada en `LLM_REQUESTED` y `TURN_COMPLETED`, volumen `guardian-config` en compose. **Cero cambio de comportamiento**: la prueba de oro `TestPromptDefaultGolden` congela el prompt actual en `backend/testdata/prompt_default.golden` |
 | **F1 — Lectura** | ✅ 2026-07-25 | `studio.go` con `GET /api/studio/config` (publicado, borrador, defaults, config viva, catálogos y runtime real), `GET /api/studio/versions`, `GET /api/studio/prompt` (Prompt Inspector con el catálogo vivo de la API). Constantes del motor con nombre y expuestas en solo lectura (`guardianTemperature`, `ragTopK`, `entityConfidence`, `RAG.Chunks()`). Página `/studio` en el sistema de diseño existente + ruta en nginx y el ítem "Configuración" ya no es un placeholder |
 | **F2 — Diseño del comportamiento** | ✅ 2026-07-25 | Persona, objetivos y límites se componen desde la configuración (`sectionPersona`, `sectionObjectives`, `sectionSafety`), con frases por tramo servidas al frontend para que la consola muestre la instrucción exacta que recibirá el modelo. `PUT /api/studio/config/draft` con validación por campo (422). Controles: 5 sliders, longitud, emojis, humor, objetivos ordenables y checklist de límites |
-| F3 — Playground | pendiente | |
+| **F3 — Playground aislado** | ✅ 2026-07-25 | `playground.go`: bus, hub, sesiones, motor y cliente de API propios. `POST /api/studio/playground/{start,message,reset}`, `GET /api/studio/playground` (declara si está activo y contra qué API) y `GET /ws/studio` con hub propio. Tope de 20 turnos por sesión, barrido por inactividad (1h) y coste por turno a la vista. En la consola: pestañas *Probar* / *Prompt*, hilo con el mismo lenguaje visual que `/chat`, escenarios rápidos y actividad del motor en vivo |
 | F4 — Publicar | pendiente | |
 | F5 — Cierre | pendiente | |
 
@@ -328,6 +328,15 @@ y los límites son explícitos. `testdata/prompt_default.golden` se regeneró en
 mismo commit para que el cambio se revise en el diff, y
 `TestHardRulesSurviveAnyConfig` recorre 27 configuraciones extremas comprobando
 que ninguna puede borrar las reglas duras.
+
+Nota de F3: el aislamiento cubre todo lo que está bajo nuestro control —
+entrega por WhatsApp, persistencia, `/api/calls`, sesiones vivas y la
+configuración del agente real—, y `TestPlaygroundIsolation` lo comprueba una a
+una. La superficie que NO queda aislada por construcción es la API Protege: el
+Playground escribe usuarios y variables en la API a la que apunte. Por eso su
+valor por defecto es el mock (`STUDIO_API_URL`, si no `http://mock-protege:9000`),
+la consola muestra siempre contra cuál está corriendo y el backend registra un
+`SECURITY WARNING` al arrancar si alguien lo apunta a la API de producción.
 
 Nota de F0: `TestPublishDuringTurnsIsRaceFree` usa un solo teléfono a propósito.
 La API de pruebas devuelve siempre la misma `conversation_id`, así que varios

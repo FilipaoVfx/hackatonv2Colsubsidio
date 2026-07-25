@@ -736,6 +736,20 @@ func (e *GuardianEngine) Sweep() int {
 	return n
 }
 
+// State devuelve la etapa viva de una conversación (solo lectura). La usa el
+// Playground del Studio para mostrar en qué punto del embudo va la prueba.
+func (e *GuardianEngine) State(convID string) LeadState {
+	if e == nil {
+		return ""
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if st := e.convs[convID]; st != nil {
+		return st.state
+	}
+	return ""
+}
+
 func (e *GuardianEngine) close(convID string) {
 	e.mu.Lock()
 	delete(e.convs, convID)

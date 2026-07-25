@@ -1,4 +1,4 @@
-// Agent Studio — consola de configuración del asesor (fases 1 y 2 del plan
+// Agent Studio — consola de configuración del asesor (fases 1, 2 y 3 del plan
 // 10_PLAN_AGENT_STUDIO.md).
 //
 // Principio del PRD: aquí no se escriben prompts. Se mueven controles de un
@@ -6,7 +6,7 @@
 // pantalla NO tiene ningún campo de texto libre salvo el nombre del agente, y
 // las frases que se muestran bajo cada control vienen del backend: si se
 // escribieran aquí, un día dirían una cosa y el modelo recibiría otra.
-const STUDIO_UI_VERSION = "1.0.0";
+const STUDIO_UI_VERSION = "1.1.0";
 console.log(`[guardian-ai] studio UI v${STUDIO_UI_VERSION}`);
 
 const $ = (id) => document.getElementById(id);
@@ -285,7 +285,10 @@ function showFieldErrors(errors) {
   }
 }
 
-$("saveBtn").addEventListener("click", async () => {
+// saveDraft persiste el borrador y devuelve si quedó guardado. El Playground lo
+// reutiliza: probar SIEMPRE prueba lo que está guardado, nunca un estado local
+// que el backend no conoce.
+async function saveDraft() {
   $("saveBtn").disabled = true;
   try {
     const r = await fetch("/api/studio/config/draft", {
@@ -296,9 +299,9 @@ $("saveBtn").addEventListener("click", async () => {
     if (r.status === 422) {
       const { errors } = await r.json();
       showFieldErrors(errors || []);
-      return;
+      return false;
     }
-    if (!r.ok) { $("statusChip").textContent = "no se pudo guardar"; return; }
+    if (!r.ok) { $("statusChip").textContent = "no se pudo guardar"; return false; }
     const { draft } = await r.json();
     cfg = draft;
     dirty = false;
@@ -306,10 +309,13 @@ $("saveBtn").addEventListener("click", async () => {
     renderAll();
     $("savedNote").hidden = false;
     refreshPrompt();
+    return true;
   } finally {
     $("saveBtn").disabled = false;
   }
-});
+}
+
+$("saveBtn").addEventListener("click", saveDraft);
 
 $("resetBtn").addEventListener("click", async () => {
   const r = await fetch("/api/studio/config");
@@ -320,4 +326,212 @@ $("resetBtn").addEventListener("click", async () => {
   renderAll();
 });
 
+// ---------- pestañas de la columna derecha ----------
+function showPanel(which) {
+  const play = which === "play";
+  $("panelPlay").hidden = !play;
+  $("panelPrompt").hidden = play;
+  $("tabPlay").setAttribute("aria-pressed", String(play));
+  $("tabPrompt").setAttribute("aria-pressed", String(!play));
+}
+$("tabPlay").addEventListener("click", () => showPanel("play"));
+$("tabPrompt").addEventListener("click", () => showPanel("prompt"));
+
+// ---------- Playground ----------
+// Corre en un mundo aparte: bus, sesiones, motor y API propios (fase 3 del
+// plan). Aquí solo se pinta lo que devuelve, más los eventos que llegan en vivo
+// por /ws/studio mientras el turno corre.
+const SCENARIOS = [
+  "Hola, ¿qué es esto?",
+  "¿Cuánto cuesta?",
+  "Tengo un perro y dos hijos",
+  "Está muy caro",
+  "Quiero hablar con un asesor",
+];
+
+let play = { enabled: false, session: null, busy: false };
+
+async function loadPlayground() {
+  let data = { enabled: false };
+  try {
+    const r = await fetch("/api/studio/playground");
+    if (r.ok) data = await r.json();
+  } catch (_) { /* consola sin backend: se declara apagado */ }
+
+  play.enabled = !!data.enabled;
+  if (!play.enabled) {
+    $("playSeal").textContent = "no disponible";
+    $("playHint").textContent =
+      "El Playground necesita el motor Guardian y una API de pruebas (STUDIO_API_URL). " +
+      "Mientras tanto puedes revisar el prompt generado en la pestaña Prompt.";
+    $("playInput").disabled = true;
+    $("playSend").disabled = true;
+    $("playReset").disabled = true;
+    return;
+  }
+  $("playSeal").textContent = "aislado";
+  $("playHint").textContent =
+    `Escribe como si fueras el cliente. Corre con el borrador contra ${data.api} y en un mundo aparte: ` +
+    `no envía WhatsApp, no entra al pipeline y no toca las conversaciones vivas. Máximo ${data.max_turns} turnos por prueba.`;
+  renderScenarios();
+  connectStudioWS();
+}
+
+function renderScenarios() {
+  const host = $("playScenarios");
+  host.innerHTML = "";
+  for (const text of SCENARIOS) {
+    const b = document.createElement("button");
+    b.className = "btn-ghost";
+    b.textContent = text;
+    b.addEventListener("click", () => { $("playInput").value = text; sendPlay(); });
+    host.appendChild(b);
+  }
+}
+
+function bubble(role, text, buttons) {
+  const thread = $("playThread");
+  thread.classList.remove("empty");
+  const el = document.createElement("div");
+  el.className = `bubble ${role}`;
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = role === "user" ? "Cliente" : (cfg?.persona?.agent_name || "Agente");
+  el.appendChild(who);
+  el.appendChild(document.createTextNode(text));
+  if (buttons && buttons.length) {
+    const quick = document.createElement("div");
+    quick.className = "quick";
+    for (const b of buttons) {
+      const s = document.createElement("span");
+      s.textContent = b;
+      quick.appendChild(s);
+    }
+    el.appendChild(quick);
+  }
+  thread.appendChild(el);
+  thread.scrollTop = thread.scrollHeight;
+  return el;
+}
+
+function typingBubble() {
+  const thread = $("playThread");
+  const el = document.createElement("div");
+  el.className = "bubble agent typing";
+  el.innerHTML = "<span></span><span></span><span></span>";
+  thread.appendChild(el);
+  thread.scrollTop = thread.scrollHeight;
+  return el;
+}
+
+function renderPlayMeta(session) {
+  $("playState").textContent = session.state || "—";
+  $("playTurns").textContent = `${session.turns}/${session.turns + session.turns_left}`;
+  $("playCost").textContent = `US$ ${(session.cost_usd || 0).toFixed(4)}`;
+}
+
+async function sendPlay() {
+  const text = $("playInput").value.trim();
+  if (!play.enabled || play.busy || !text) return;
+
+  // Probar prueba lo GUARDADO: si hay cambios sin guardar, se guardan primero.
+  if (dirty && !(await saveDraft())) {
+    $("statusChip").textContent = "corrige el borrador antes de probarlo";
+    return;
+  }
+
+  play.busy = true;
+  $("playSend").disabled = true;
+  $("playInput").value = "";
+  bubble("user", text);
+  const typing = typingBubble();
+  $("playEvents").innerHTML = "";
+
+  try {
+    if (!play.session) {
+      const r = await fetch("/api/studio/playground/start", { method: "POST" });
+      if (!r.ok) throw new Error("no se pudo abrir la sesión de prueba");
+      play.session = await r.json();
+    }
+    const r = await fetch("/api/studio/playground/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: play.session.session_id, text }),
+    });
+    typing.remove();
+    if (r.status === 429) {
+      bubble("agent", "Se acabaron los turnos de esta prueba. Reinicia para seguir probando.");
+      return;
+    }
+    if (!r.ok) {
+      bubble("agent", `El turno de prueba falló: ${await r.text()}`);
+      return;
+    }
+    const turn = await r.json();
+    play.session = turn.session;
+    bubble("agent", turn.reply, turn.buttons);
+    renderPlayMeta(turn.session);
+    // El resumen se añade al final del feed en vivo, no lo sustituye: lo que
+    // pasó durante el turno sigue a la vista.
+    const summary = document.createElement("div");
+    summary.innerHTML = `<span class="t"></span><span class="d"></span>`;
+    summary.querySelector(".t").textContent = "turno";
+    summary.querySelector(".d").textContent =
+      `config v${turn.config_version} · ${turn.latency_ms} ms · US$ ${(turn.turn_cost_usd || 0).toFixed(4)} · ${turn.events.length} eventos`;
+    $("playEvents").appendChild(summary);
+  } catch (err) {
+    typing.remove();
+    bubble("agent", `El turno de prueba falló: ${err.message}`);
+  } finally {
+    play.busy = false;
+    $("playSend").disabled = false;
+  }
+}
+
+$("playSend").addEventListener("click", sendPlay);
+$("playInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPlay(); });
+
+$("playReset").addEventListener("click", async () => {
+  if (play.session) {
+    await fetch("/api/studio/playground/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: play.session.session_id }),
+    }).catch(() => {});
+  }
+  play.session = null;
+  const thread = $("playThread");
+  thread.innerHTML = "<span>Sin conversación de prueba todavía.</span>";
+  thread.classList.add("empty");
+  $("playEvents").innerHTML = "";
+  $("playState").textContent = "—";
+  $("playTurns").textContent = "—";
+  $("playCost").textContent = "—";
+});
+
+// Actividad del motor en vivo. Es un extra: si el WebSocket no conecta, el
+// turno se sigue viendo entero en la respuesta HTTP.
+function connectStudioWS() {
+  let ws;
+  try {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws/studio`);
+  } catch (_) { return; }
+  ws.onmessage = (msg) => {
+    let ev;
+    try { ev = JSON.parse(msg.data); } catch (_) { return; }
+    const host = $("playEvents");
+    const row = document.createElement("div");
+    const detail = ev.payload?.tool || ev.payload?.to || ev.payload?.key ||
+                   ev.payload?.intent || ev.payload?.strategy || ev.producer || "";
+    row.innerHTML = `<span class="t"></span><span class="d"></span>`;
+    row.querySelector(".t").textContent = ev.type;
+    row.querySelector(".d").textContent = String(detail);
+    host.appendChild(row);
+    while (host.children.length > 8) host.removeChild(host.firstChild);
+  };
+  ws.onclose = () => setTimeout(connectStudioWS, 4000);
+}
+
 load();
+loadPlayground();

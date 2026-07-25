@@ -53,6 +53,44 @@
     .st-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
     .saved { color: var(--seal-ok); }
     .head-with-seal { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+
+    /* Playground: mismo lenguaje que el hilo de /chat, para que probar el
+       borrador se vea exactamente como se verá en WhatsApp. */
+    .side-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .side-tabs button[aria-pressed="true"] { background: var(--brand-wash); border-color: var(--brand); color: var(--brand-deep); }
+
+    .wa-thread { padding: 12px; min-height: 190px; max-height: 40vh; overflow-y: auto;
+                 display: flex; flex-direction: column; gap: 8px;
+                 border: 1px solid var(--rule-soft); border-radius: 10px; background: var(--paper-2); }
+    .wa-thread.empty { align-items: center; justify-content: center; text-align: center; color: var(--ink-soft); }
+    .bubble { max-width: 82%; padding: 9px 12px; border-radius: 10px; line-height: 1.45;
+              white-space: pre-wrap; word-wrap: break-word; border: 1px solid var(--rule-soft); background: var(--card);
+              animation: pop .16s ease-out; }
+    @keyframes pop { from { transform: translateY(3px); opacity: 0; } }
+    .bubble .who { display: block; font-size: 11px; font-weight: 600; letter-spacing: .09em;
+                   text-transform: uppercase; color: var(--ink-soft); margin-bottom: 3px; }
+    .bubble.user { align-self: flex-start; }
+    .bubble.agent { align-self: flex-end; background: var(--brand-wash); border-color: rgba(0,103,177,.22); }
+    .bubble.typing { display: flex; gap: 4px; align-items: center; padding: 12px 14px; align-self: flex-end; }
+    .bubble.typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft); animation: blink 1.2s infinite; }
+    .bubble.typing span:nth-child(2) { animation-delay: .2s } .bubble.typing span:nth-child(3) { animation-delay: .4s }
+    @keyframes blink { 0%,80%,100% { opacity: .25 } 40% { opacity: 1 } }
+    .bubble .quick { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+    .bubble .quick span { font-size: 11px; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; color: var(--ink-soft); }
+
+    .wa-compose { display: flex; gap: 8px; margin-top: 12px; }
+    .wa-compose input { flex: 1; min-width: 0; }
+    .play-meta { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 10px;
+                 font-size: 11px; color: var(--ink-soft); }
+    .play-meta .mono { color: var(--brand); }
+    .play-meta button { margin-left: auto; }
+
+    /* Actividad del motor durante el turno (vía /ws/studio) */
+    .ev-mini { margin-top: 10px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; }
+    .ev-mini div { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--rule-soft); }
+    .ev-mini div:last-child { border-bottom: 0; }
+    .ev-mini .t { font-family: var(--mono); color: var(--brand-deep); flex: 0 0 auto; }
+    .ev-mini .d { color: var(--ink-soft); min-width: 0; word-break: break-word; }
   </style>
 </head>
 <body>
@@ -171,29 +209,60 @@
         <p class="hint" style="margin-top:8px">Publicar (aplicar el borrador al asesor que atiende clientes) llega en la siguiente fase. Hasta entonces el agente sigue corriendo con la versión viva.</p>
       </div>
 
-      <!-- Columna derecha: prompt real + estado del motor -->
+      <!-- Columna derecha: probar el borrador / ver lo que recibe el modelo -->
       <aside class="st-side">
-        <div class="cred st-section">
-          <div class="eyebrow">Prompt Inspector</div>
-          <h2>Lo que recibe el modelo</h2>
-          <p class="hint">Generado, nunca escrito a mano. <span class="mono" id="promptBytes"></span></p>
-          <div class="prompt-box" id="promptBox">cargando…</div>
-          <div class="st-actions">
-            <button class="btn-ghost" id="copyBtn">Copiar</button>
-            <select id="promptState" class="btn-ghost" aria-label="Etapa del lead"></select>
+        <div class="side-tabs" role="tablist">
+          <button class="btn-ghost" id="tabPlay" role="tab" aria-pressed="true" aria-controls="panelPlay">Probar</button>
+          <button class="btn-ghost" id="tabPrompt" role="tab" aria-pressed="false" aria-controls="panelPrompt">Prompt</button>
+        </div>
+
+        <div id="panelPlay">
+          <div class="cred st-section">
+            <div class="eyebrow">Playground</div>
+            <div class="head-with-seal"><h2>Probar el borrador</h2><span class="seal" id="playSeal">aislado</span></div>
+            <p class="hint" id="playHint">Escribe como si fueras el cliente. Corre con el borrador y en un mundo aparte: no envía WhatsApp, no entra al pipeline y no toca las conversaciones vivas.</p>
+
+            <div class="wa-thread empty" id="playThread"><span>Sin conversación de prueba todavía.</span></div>
+
+            <div class="wa-compose">
+              <input type="text" id="playInput" placeholder="Hola, ¿cuánto cuesta?" aria-label="Mensaje del cliente de prueba" />
+              <button class="btn-primary" id="playSend">Enviar</button>
+            </div>
+            <div class="levels" id="playScenarios" style="margin-top:10px"></div>
+
+            <div class="play-meta">
+              <span>Etapa <span class="mono" id="playState">—</span></span>
+              <span>Turnos <span class="mono" id="playTurns">—</span></span>
+              <span>Coste <span class="mono" id="playCost">—</span></span>
+              <button class="btn-ghost" id="playReset">Reiniciar</button>
+            </div>
+            <div class="ev-mini" id="playEvents"></div>
           </div>
         </div>
 
-        <div class="cred st-section">
-          <div class="eyebrow">Motor</div>
-          <div class="head-with-seal"><h2>Estado real</h2><span class="seal">solo lectura</span></div>
-          <p class="hint">Valores con los que corre el sistema. Todavía no son editables desde aquí: se muestran para que sepas con qué estás jugando.</p>
-          <div class="locked" id="runtime"></div>
+        <div id="panelPrompt" hidden>
+          <div class="cred st-section">
+            <div class="eyebrow">Prompt Inspector</div>
+            <h2>Lo que recibe el modelo</h2>
+            <p class="hint">Generado, nunca escrito a mano. <span class="mono" id="promptBytes"></span></p>
+            <div class="prompt-box" id="promptBox">cargando…</div>
+            <div class="st-actions">
+              <button class="btn-ghost" id="copyBtn">Copiar</button>
+              <select id="promptState" class="btn-ghost" aria-label="Etapa del lead"></select>
+            </div>
+          </div>
+
+          <div class="cred st-section">
+            <div class="eyebrow">Motor</div>
+            <div class="head-with-seal"><h2>Estado real</h2><span class="seal">solo lectura</span></div>
+            <p class="hint">Valores con los que corre el sistema. Todavía no son editables desde aquí: se muestran para que sepas con qué estás jugando.</p>
+            <div class="locked" id="runtime"></div>
+          </div>
         </div>
       </aside>
     </section>
   </main>
 </div>
-<script src="/studio.js?v=1.0.0"></script>
+<script src="/studio.js?v=1.1.0"></script>
 </body>
 </html>

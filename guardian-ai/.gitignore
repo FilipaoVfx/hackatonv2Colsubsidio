@@ -7,3 +7,6 @@ backend/guardianai
 
 # compiled mock binary
 mock-protege/protegemock
+
+# caché de build de Go (los tests corren en contenedor con GOCACHE=/src/.gocache)
+backend/.gocache/
