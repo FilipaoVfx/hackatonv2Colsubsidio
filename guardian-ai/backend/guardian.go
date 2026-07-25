@@ -16,12 +16,13 @@ import (
 //
 // Channel-independent: it touches only the bus + sessions, never Kapso.
 type GuardianEngine struct {
-	bus      *EventBus
-	api      *ColsubsidioClient
-	llm      GuardianLLM
-	tools    *Tools
-	sessions *WhatsAppSessions
-	rag      *RAG
+	bus        *EventBus
+	api        *ColsubsidioClient
+	llm        GuardianLLM
+	tools      *Tools
+	sessions   *WhatsAppSessions
+	rag        *RAG
+	affiliates *Affiliates // Afiliado 360: precarga de perfil (nil-safe)
 
 	mu    sync.Mutex
 	convs map[string]*guardianConv
@@ -41,10 +42,11 @@ type guardianConv struct {
 	recs      []string // rendered recommendations shown in MATCHING
 }
 
-func NewGuardianEngine(bus *EventBus, api *ColsubsidioClient, llm GuardianLLM, tools *Tools, sessions *WhatsAppSessions, rag *RAG) *GuardianEngine {
+func NewGuardianEngine(bus *EventBus, api *ColsubsidioClient, llm GuardianLLM, tools *Tools, sessions *WhatsAppSessions, rag *RAG, affiliates *Affiliates) *GuardianEngine {
 	return &GuardianEngine{
 		bus: bus, api: api, llm: llm, tools: tools, sessions: sessions, rag: rag,
-		convs: make(map[string]*guardianConv),
+		affiliates: affiliates,
+		convs:      make(map[string]*guardianConv),
 	}
 }
 
@@ -101,6 +103,23 @@ func (e *GuardianEngine) start(ctx context.Context, phone string, greet bool) (s
 	e.convs[callID] = &guardianConv{userID: user.ID, phone: phone, state: StateProfile, questions: questions}
 	e.mu.Unlock()
 	e.sessions.Register(phone, callID)
+
+	// Afiliado 360: precarga del perfil desde la base de afiliados (solo la
+	// primera vez que vemos al usuario; en visitas posteriores las variables ya
+	// están en la API). El asesor abre sabiendo lo que Colsubsidio ya sabe.
+	if isNew && e.affiliates.Enabled() {
+		if af, ok := e.affiliates.ForPhone(phone); ok {
+			vars := af.Variables()
+			if res := e.tools.Run(ctx, callID, "save_variable",
+				map[string]interface{}{"user_id": user.ID, "variables": vars}); res.Err == nil {
+				for _, v := range vars {
+					e.bus.Publish(callID, FEATURE_UPDATED, "guardian_engine", map[string]interface{}{
+						"key": v.Key, "value": v.Value, "previous": nil, "source": "colsubsidio_360",
+					})
+				}
+			}
+		}
+	}
 
 	if greet {
 		e.sendAgent(callID, phone, "¡Hola! Soy Guardian, tu asesor de protección de Colsubsidio 🛡️. "+

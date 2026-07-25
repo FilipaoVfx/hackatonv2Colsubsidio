@@ -592,12 +592,37 @@ func (s *store) handleQuestions(w http.ResponseWriter, _ *http.Request) {
 func (s *store) handleRules(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("product_id")
 	out := []Rule{}
+	s.mu.Lock()
 	for _, rl := range rulesCatalog {
 		if pid == "" || rl.ProductID == pid {
 			out = append(out, rl)
 		}
 	}
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, out)
+}
+
+// POST /api/v1/rules — crea una regla (RuleCreate del spec real). Idempotente
+// por Name: re-seed no duplica.
+func (s *store) handleRuleCreate(w http.ResponseWriter, r *http.Request) {
+	var in Rule
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.ProductID == "" || in.Name == "" || in.VariableKey == "" {
+		writeErr(w, http.StatusUnprocessableEntity, "product_id, name and variable_key required")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, rl := range rulesCatalog {
+		if rl.Name == in.Name { // upsert por nombre
+			in.ID = rl.ID
+			rulesCatalog[i] = in
+			writeJSON(w, http.StatusCreated, in)
+			return
+		}
+	}
+	in.ID = uuid4()
+	rulesCatalog = append(rulesCatalog, in)
+	writeJSON(w, http.StatusCreated, in)
 }
 
 func (s *store) handleUserSearch(w http.ResponseWriter, r *http.Request) {
@@ -839,6 +864,7 @@ func main() {
 	mux.HandleFunc("GET /api/v1/products", s.handleProducts)
 	mux.HandleFunc("GET /api/v1/questions", s.handleQuestions)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
+	mux.HandleFunc("POST /api/v1/rules", s.handleRuleCreate)
 	mux.HandleFunc("GET /api/v1/users/search", s.handleUserSearch)
 	mux.HandleFunc("POST /api/v1/users", s.handleUserCreate)
 	mux.HandleFunc("GET /api/v1/users/{user_id}", s.handleUserGet)

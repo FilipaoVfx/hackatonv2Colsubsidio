@@ -115,8 +115,31 @@ func main() {
 	var guardian *GuardianEngine
 	if protegeAPI.Enabled() && os.Getenv("OPENAI_API_KEY") != "" && os.Getenv("GUARDIAN_DISABLED") == "" {
 		rag := NewRAG(knowledgeDir(), NewLLMClient())
-		guardian = NewGuardianEngine(bus, protegeAPI, NewLLMClient(), NewTools(protegeAPI, bus), sessions, rag)
-		log.Printf("guardian conversation engine enabled (whatsapp brain, rag=%s)", rag.Mode())
+		affiliates := NewAffiliates()
+		guardian = NewGuardianEngine(bus, protegeAPI, NewLLMClient(), NewTools(protegeAPI, bus), sessions, rag, affiliates)
+		log.Printf("guardian conversation engine enabled (whatsapp brain, rag=%s, afiliado360=%v)", rag.Mode(), affiliates.Enabled())
+
+		// Seed de reglas 360 (derivadas de la base de afiliados) vía el CRUD de
+		// la propia API (POST /api/v1/rules) — mismo camino para mock y real.
+		// Idempotente: el mock upserta por Name.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			products, err := protegeAPI.GetProducts(ctx)
+			if err != nil {
+				log.Printf("afiliado360: seed rules skipped (products: %v)", err)
+				return
+			}
+			n := 0
+			for _, r := range derivedRules(products) {
+				if _, err := protegeAPI.CreateRule(ctx, r); err != nil {
+					log.Printf("afiliado360: seed rule %q failed: %v", r.Name, err)
+					continue
+				}
+				n++
+			}
+			log.Printf("afiliado360: %d regla(s) 360 sembradas en la API", n)
+		}()
 	}
 	// Delivery consumer (bus -> Kapso), per RA-002. Every MESSAGE_SENT is sent to
 	// the customer's phone; in demo mode (no creds) it is a no-op because the reply

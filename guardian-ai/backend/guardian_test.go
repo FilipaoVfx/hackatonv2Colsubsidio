@@ -99,7 +99,7 @@ func newGuardianForTest(t *testing.T, srvURL string, llm GuardianLLM) (*Guardian
 	api := &ColsubsidioClient{base: srvURL, http: &http.Client{Timeout: 5 * time.Second}}
 	tools := NewTools(api, bus)
 	sessions := NewWhatsAppSessions()
-	return NewGuardianEngine(bus, api, llm, tools, sessions, &RAG{}), cap
+	return NewGuardianEngine(bus, api, llm, tools, sessions, &RAG{}, nil), cap
 }
 
 // TestGuardianFullFlow drives a lead NEW→…→READY_FOR_ADVISOR and asserts the

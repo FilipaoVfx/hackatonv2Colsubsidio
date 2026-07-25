@@ -301,6 +301,16 @@ func (c *ColsubsidioClient) GetRules(ctx context.Context, productID string) ([]P
 	return out, nil
 }
 
+// CreateRule adds a weighted rule via the API's own CRUD (POST /api/v1/rules).
+// Used to seed the data-driven "360" rules — same path works on mock and real.
+func (c *ColsubsidioClient) CreateRule(ctx context.Context, r ProtegeRule) (*ProtegeRule, error) {
+	var out ProtegeRule
+	if err := c.do(ctx, "POST", "/api/v1/rules", r, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // GetProducts lists the real catalog (grounds the prompt: no invented products).
 func (c *ColsubsidioClient) GetProducts(ctx context.Context) ([]ProtegeProduct, error) {
 	var out []ProtegeProduct

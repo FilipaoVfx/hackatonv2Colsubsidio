@@ -10,7 +10,9 @@ FROM alpine:3.20
 RUN adduser -D -u 10001 app
 COPY --from=build /guardian /guardian
 COPY knowledge/ /knowledge/
+COPY data/ /data/
 ENV KNOWLEDGE_DIR=/knowledge
+ENV AFFILIATES_CSV=/data/affiliates_sample.csv
 USER app
 EXPOSE 3000
 ENTRYPOINT ["/guardian"]
