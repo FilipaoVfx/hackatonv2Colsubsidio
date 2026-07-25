@@ -98,6 +98,13 @@
     .version .v-date { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); flex: 0 0 auto; }
     .version.empty { color: var(--ink-soft); }
 
+    /* Roadmap: texto, no controles. Nada aquí se puede pulsar. */
+    .roadmap { margin-top: 4px; }
+    .rm { padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+    .rm:last-child { border-bottom: 0; }
+    .rm-name { display: block; font-weight: 600; }
+    .rm-what { display: block; color: var(--ink-soft); }
+
     /* Actividad del motor durante el turno (vía /ws/studio) */
     .ev-mini { margin-top: 10px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; }
     .ev-mini div { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--rule-soft); }
@@ -238,6 +245,20 @@
 
           <div class="versions-head">Versiones publicadas</div>
           <div id="versions" class="version-list"></div>
+        </div>
+
+        <!-- Roadmap declarado: lo que NO está construido, dicho como tal -->
+        <div class="cred st-section">
+          <div class="eyebrow">Roadmap</div>
+          <div class="head-with-seal"><h2>Lo que todavía no hace</h2><span class="seal">no construido</span></div>
+          <p class="hint">El PRD contempla más secciones. Aquí no hay interruptores muertos: lo que no está hecho se dice, no se maqueta como si funcionara.</p>
+          <div class="roadmap">
+            <div class="rm"><span class="rm-name">Conocimiento, memoria y razonamiento</span><span class="rm-what">Los valores reales están a la vista en el panel <em>Motor</em>; editarlos desde aquí es la siguiente fase.</span></div>
+            <div class="rm"><span class="rm-name">Voz</span><span class="rm-what">Elegir voz y velocidad para el canal telefónico. Hoy la voz se configura en ElevenLabs/Vapi.</span></div>
+            <div class="rm"><span class="rm-name">Canales</span><span class="rm-what">Personalidad distinta por canal (WhatsApp, voz, web). Hoy la configuración es una sola para todos.</span></div>
+            <div class="rm"><span class="rm-name">Experimentos</span><span class="rm-what">Repartir tráfico entre dos versiones y comparar. Hoy se publica una versión a la vez, con vuelta atrás.</span></div>
+            <div class="rm"><span class="rm-name">Analíticas de configuración</span><span class="rm-what">Conversión y coste por versión publicada. Hoy el Pipeline mide conversaciones, no versiones.</span></div>
+          </div>
         </div>
       </div>
 

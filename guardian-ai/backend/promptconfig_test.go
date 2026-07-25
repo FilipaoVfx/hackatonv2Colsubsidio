@@ -196,8 +196,9 @@ func TestConfigPromptBudget(t *testing.T) {
 			"Si el catálogo creció a propósito, sube maxConfigPromptBytes en el mismo commit y déjalo dicho en el plan.\nPeor caso: %+v",
 			worst, maxConfigPromptBytes, worstCfg)
 	}
-	t.Logf("peor caso: %d bytes de %d (%.0f%% del presupuesto)",
-		worst, maxConfigPromptBytes, 100*float64(worst)/float64(maxConfigPromptBytes))
+	t.Logf("configuración de fábrica: %d bytes | peor caso: %d de %d (%.0f%% del presupuesto)",
+		configPromptBytes(DefaultConfig()), worst, maxConfigPromptBytes,
+		100*float64(worst)/float64(maxConfigPromptBytes))
 }
 
 // TestPromptSizeStaysReasonable: el prompt viaja en cada turno; una

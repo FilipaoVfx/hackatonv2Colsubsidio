@@ -436,10 +436,29 @@ CALL_ENDED → SUMMARY_GENERATED → STATE_CHANGED (→ ENDED)
 
 ---
 
+### 6.1 El bus del Agent Studio (Playground)
+
+El Playground del Agent Studio corre sobre un **bus distinto** del de producción.
+Publica exactamente los mismos eventos de este catálogo — es el mismo motor
+Guardian — pero con otra lista de consumidores:
+
+| Bus | Consumidores |
+|-----|--------------|
+| Producción (`bus`) | `persistence` (memoria + Supabase), `projector` (analíticas), `ws_hub` (`/ws`), entrega por Kapso (`MESSAGE_SENT`) |
+| Playground (`studioBus`) | búfer de la respuesta HTTP y `ws_hub` propio (`/ws/studio`) — **nada más** |
+
+Consecuencia buscada: un `MESSAGE_SENT` del Playground **no tiene camino físico
+hacia WhatsApp**, no se persiste, no entra en `/api/calls` ni en el Pipeline, y
+no aparece en `/ws`. El aislamiento es por construcción, no por una bandera;
+`TestPlaygroundIsolation` lo comprueba evento a evento.
+
+---
+
 ## 7. Reglas de invariancia
 
-1. `persistence` y `ws_hub` consumen **todos** los eventos. No hay evento que no se persista ni que no llegue al dashboard.
+1. `persistence` y `ws_hub` consumen **todos** los eventos del bus de producción. No hay evento que no se persista ni que no llegue al dashboard.
 2. `sequence` es único y creciente por `call_id`. Sin huecos.
 3. Ningún consumidor muta el payload de un evento; lo trata como inmutable.
 4. El frontend (`ws_hub` → dashboard) es **solo lectura** (RN-004). No hay bus de vuelta desde el dashboard.
 5. Un nuevo evento requiere PR que actualice este catálogo antes que el código.
+6. El bus del Playground (§6.1) es la **única** excepción declarada a la regla 1, y lo es al revés: ningún evento suyo puede llegar a `persistence`, al `projector`, a `/ws` ni a la entrega por Kapso. Cualquier suscriptor nuevo del bus principal debe seguir sin conocerlo.
