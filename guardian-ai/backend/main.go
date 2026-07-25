@@ -56,6 +56,7 @@ func main() {
 	var analytics *Analytics
 	var persistPool *pgxpool.Pool // réplica opcional de la config del Studio
 	var configStore *ConfigStore
+	var studioRAG *RAG
 	if p, err := NewSupabasePersistence(); err != nil {
 		log.Printf("supabase persistence disabled: %v", err)
 	} else if p != nil {
@@ -133,6 +134,7 @@ func main() {
 			log.Printf("agent studio: arranque degradado — %s", e)
 		}
 		log.Printf("agent studio: configuración v%d aplicada al motor", configStore.Published().Version)
+		studioRAG = rag
 
 		// Seed de reglas 360 (derivadas de la base de afiliados) vía el CRUD de
 		// la propia API (POST /api/v1/rules) — mismo camino para mock y real.
@@ -496,6 +498,30 @@ func main() {
 		}
 		return c.SendStatus(200)
 	})
+
+	// Agent Studio: consola de configuración del asesor (plan
+	// 10_PLAN_AGENT_STUDIO.md). Solo se monta si hay motor Guardian: sin él no
+	// hay nada que configurar.
+	if configStore != nil {
+		RegisterStudioRoutes(app, StudioDeps{
+			Store:  configStore,
+			Engine: guardian,
+			RAG:    studioRAG,
+			Products: func() []ProtegeProduct {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				products, _ := protegeAPI.GetProducts(ctx)
+				return products
+			},
+			Rules: func() []ProtegeRule {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				rules, _ := protegeAPI.GetRules(ctx, "")
+				return rules
+			},
+		})
+		log.Printf("agent studio: consola disponible en /studio")
+	}
 
 	// Debug/diagnostics for the WhatsApp wiring (demo + hackathon judges).
 	app.Get("/api/whatsapp/debug", func(c *fiber.Ctx) error {

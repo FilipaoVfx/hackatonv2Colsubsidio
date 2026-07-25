@@ -274,7 +274,7 @@ Cada fase entra en su propio commit, con la trazabilidad del informe de robustez
 |---|---|
 | Una configuración desactiva una invariante del motor | Catálogos cerrados + `Validate()`; test explícito: **ninguna** configuración válida puede quitar la whitelist de acciones, saltarse la API ni ampliar el vocabulario de variables |
 | Inyección de instrucciones por campos de texto | Único texto libre en el prompt: nombre del agente, ≤40 chars, sin saltos ni `#`. La nota de versión nunca entra al prompt |
-| Prompt inflado (detallada + 6 objetivos + prohibiciones) sube coste y latencia | Cota de tamaño verificada al publicar (≤8 KB) y coste por turno visible en el Playground |
+| Prompt inflado (detallada + 6 objetivos + prohibiciones) sube coste y latencia | Cota sobre lo que aporta la CONFIGURACIÓN (persona + objetivos + límites ≤ 2 KB), no sobre el prompt entero: con el catálogo real de la API el prompt ronda los 8 KB y ese peso es dato de negocio, no configuración. Coste por turno visible en el Playground |
 | Publicar en mitad de la demo cambia el bot sin aviso | Snapshot por turno + `config_version` estampada + aviso visible en el Studio de qué versión está viva |
 | Configuración corrupta en disco | Arranque con defaults, `store_error` expuesto en la API, sin panic |
 | El Playground quema tokens | Tope de 20 turnos por sesión, expiración por inactividad, coste a la vista |
@@ -315,11 +315,19 @@ verificar que el siguiente turno de una conversación real ya trae la versión n
 | Fase | Estado | Qué quedó |
 |---|---|---|
 | **F0 — Cimientos invisibles** | ✅ 2026-07-25 | `agentconfig.go` (modelo, catálogos cerrados, defaults, validación por campo), `configstore.go` (archivo atómico + réplica opcional en Postgres, degradación honesta), snapshot atómico en `GuardianEngine` (`SetConfig`/`Config`), `config_version` estampada en `LLM_REQUESTED` y `TURN_COMPLETED`, volumen `guardian-config` en compose. **Cero cambio de comportamiento**: la prueba de oro `TestPromptDefaultGolden` congela el prompt actual en `backend/testdata/prompt_default.golden` |
-| F1 — Lectura | pendiente | |
-| F2 — Diseño del comportamiento | pendiente | |
+| **F1 — Lectura** | ✅ 2026-07-25 | `studio.go` con `GET /api/studio/config` (publicado, borrador, defaults, config viva, catálogos y runtime real), `GET /api/studio/versions`, `GET /api/studio/prompt` (Prompt Inspector con el catálogo vivo de la API). Constantes del motor con nombre y expuestas en solo lectura (`guardianTemperature`, `ragTopK`, `entityConfidence`, `RAG.Chunks()`). Página `/studio` en el sistema de diseño existente + ruta en nginx y el ítem "Configuración" ya no es un placeholder |
+| **F2 — Diseño del comportamiento** | ✅ 2026-07-25 | Persona, objetivos y límites se componen desde la configuración (`sectionPersona`, `sectionObjectives`, `sectionSafety`), con frases por tramo servidas al frontend para que la consola muestre la instrucción exacta que recibirá el modelo. `PUT /api/studio/config/draft` con validación por campo (422). Controles: 5 sliders, longitud, emojis, humor, objetivos ordenables y checklist de límites |
 | F3 — Playground | pendiente | |
 | F4 — Publicar | pendiente | |
 | F5 — Cierre | pendiente | |
+
+Nota de F2: el prompt por defecto **cambió** respecto al original — era inevitable
+al componer la persona desde la configuración. La sustancia se conserva (español
+colombiano, trato cordial, 2-4 frases, un emoji como mucho) y ahora los objetivos
+y los límites son explícitos. `testdata/prompt_default.golden` se regeneró en el
+mismo commit para que el cambio se revise en el diff, y
+`TestHardRulesSurviveAnyConfig` recorre 27 configuraciones extremas comprobando
+que ninguna puede borrar las reglas duras.
 
 Nota de F0: `TestPublishDuringTurnsIsRaceFree` usa un solo teléfono a propósito.
 La API de pruebas devuelve siempre la misma `conversation_id`, así que varios

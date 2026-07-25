@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guardian AI · Agent Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/guardian.css" />
+  <style>
+    /* Dos columnas: a la izquierda se diseña el comportamiento, a la derecha se
+       ve lo que el modelo va a recibir. El inspector se queda a la vista. */
+    .st-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,420px); gap: 14px; align-items: start; }
+    @media (max-width: 1100px) { .st-grid { grid-template-columns: 1fr; } }
+    @media (min-width: 1101px) { .st-side { position: sticky; top: 14px; } }
+
+    .st-section + .st-section { margin-top: 14px; }
+    .st-section h2 { font-size: 15px; margin: 0 0 2px; }
+    .st-section .hint { color: var(--ink-soft); font-size: 12px; margin: 0 0 12px; max-width: 62ch; }
+
+    /* Perilla: rótulo de campo + valor en mono, como los campos de la credencial */
+    .knob { padding: 10px 0; border-bottom: 1px dotted var(--rule); }
+    .knob:last-child { border-bottom: 0; }
+    .knob-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .knob-value { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--brand); }
+    .knob-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+    .knob-phrase { font-size: 12px; color: var(--ink-2); margin-top: 6px; font-style: italic; }
+
+    input[type=range] { width: 100%; margin: 6px 0 0; accent-color: var(--brand); height: 22px; }
+    input[type=range]:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 6px; }
+
+    .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px dotted var(--rule); }
+    .switch-row:last-child { border-bottom: 0; }
+    .switch-row label { font-size: 14px; }
+
+    .goal { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+    .goal:last-child { border-bottom: 0; }
+    .goal .order { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--ink-soft); width: 18px; }
+    .goal .name { flex: 1; font-size: 14px; }
+    .goal .moves { display: flex; gap: 4px; }
+    .goal button { padding: 2px 8px; font-size: 12px; }
+    .goal.off .name { color: var(--ink-soft); text-decoration: line-through; }
+
+    .levels { display: flex; gap: 8px; flex-wrap: wrap; }
+    .levels button[aria-pressed="true"] { background: var(--brand-wash); border-color: var(--brand); color: var(--brand-deep); }
+
+    .prompt-box { background: var(--paper-2); border: 1px solid var(--rule-soft); border-radius: 10px; padding: 12px;
+                  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; line-height: 1.5;
+                  white-space: pre-wrap; word-break: break-word; max-height: 52vh; overflow-y: auto; }
+    .locked { border-left: 3px solid var(--rule); padding-left: 10px; }
+    .err { color: var(--alert); font-size: 12px; margin-top: 4px; }
+    .st-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .saved { font-size: 12px; color: var(--seal-ok); }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">🛡️</div>
+      <div>
+        <div class="brand-name">Guardian AI</div>
+        <div class="brand-sub">Colsubsidio</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item" href="/">Puesto de operación</a>
+      <a class="nav-item" href="/chat">Chat WhatsApp</a>
+      <a class="nav-item" href="/pipeline">Pipeline</a>
+      <a class="nav-item" data-soon>Clientes</a>
+      <a class="nav-item" data-soon>Campañas</a>
+      <a class="nav-item active" href="/studio">Configuración</a>
+    </nav>
+    <div class="advisor">
+      <div class="advisor-avatar">S</div>
+      <div>
+        <div class="advisor-role">Asesor IA</div>
+        <div class="advisor-name" id="sideAgentName">Guardian</div>
+        <div class="advisor-status"><span class="dot-on"></span> En línea</div>
+      </div>
+    </div>
+    <div class="cols-logo">
+      <div>
+        <div class="cols-name">Colsubsidio</div>
+        <div class="cols-tag">Con todo lo que te mereces</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <h1>Agent Studio</h1>
+        <p class="sub">Diseña cómo se comporta el asesor. No se escriben prompts: se mueven controles, y el sistema compone las instrucciones. El prompt de la derecha es el que recibe el modelo.</p>
+      </div>
+      <div class="head-actions">
+        <span class="chip" id="statusChip">cargando…</span>
+        <button class="btn-ghost" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
+      </div>
+    </header>
+
+    <div id="storeError" class="empty-state" hidden></div>
+
+    <section class="st-grid">
+      <div>
+        <!-- General -->
+        <div class="cred st-section">
+          <div class="eyebrow">General</div>
+          <h2>El agente</h2>
+          <p class="hint">Lo que identifica al asesor y con qué versión está corriendo ahora mismo.</p>
+          <div class="field">
+            <span class="k">Nombre visible</span><span class="rule-fill"></span>
+            <input class="v" id="agentName" maxlength="40" style="max-width:260px" />
+          </div>
+          <div class="err" id="agentNameErr" hidden></div>
+          <div class="field"><span class="k">Versión viva</span><span class="rule-fill"></span><span class="v mono" id="liveVersion">—</span></div>
+          <div class="field"><span class="k">Modelo</span><span class="rule-fill"></span><span class="v mono" id="model">—</span></div>
+          <div class="field"><span class="k">Última edición</span><span class="rule-fill"></span><span class="v mono" id="updatedAt">—</span></div>
+        </div>
+
+        <!-- Personalidad -->
+        <div class="cred st-section">
+          <div class="eyebrow">Personalidad</div>
+          <h2>Cómo habla</h2>
+          <p class="hint">Cada control se traduce a una instrucción concreta, que puedes leer debajo del slider y verificar en el prompt.</p>
+          <div id="sliders"></div>
+          <div class="switch-row">
+            <label for="emojis">Puede usar emojis</label>
+            <input type="checkbox" id="emojis" />
+          </div>
+          <div class="switch-row">
+            <label for="humor">Puede usar humor</label>
+            <input type="checkbox" id="humor" />
+          </div>
+          <div class="knob">
+            <div class="knob-head"><span class="label">Longitud de respuesta</span></div>
+            <div class="levels" id="lengths"></div>
+            <div class="knob-phrase" id="lengthPhrase"></div>
+          </div>
+        </div>
+
+        <!-- Objetivos -->
+        <div class="cred st-section">
+          <div class="eyebrow">Comercial</div>
+          <h2>Objetivos por prioridad</h2>
+          <p class="hint">El orden manda: cuando dos objetivos compiten, gana el que esté más arriba. Desmarca los que no apliquen a esta campaña.</p>
+          <div id="goals"></div>
+          <div class="err" id="goalsErr" hidden></div>
+        </div>
+
+        <!-- Seguridad -->
+        <div class="cred st-section">
+          <div class="eyebrow">Seguridad</div>
+          <h2>Límites del asesor</h2>
+          <p class="hint">Estos límites se suman a las reglas que el motor aplica siempre: no inventar productos ni precios, y que las decisiones de negocio las tome la API de Colsubsidio.</p>
+          <div id="forbid"></div>
+          <div class="knob">
+            <div class="knob-head"><span class="label">Nivel de protección</span></div>
+            <div class="levels" id="levels"></div>
+            <div class="knob-phrase" id="levelPhrase"></div>
+          </div>
+        </div>
+
+        <div class="st-actions">
+          <button class="btn-primary" id="saveBtn">Guardar borrador</button>
+          <button class="btn-ghost" id="resetBtn">Restablecer a fábrica</button>
+          <span class="saved" id="savedNote" hidden>Borrador guardado</span>
+        </div>
+        <p class="hint" style="margin-top:8px">Publicar (aplicar el borrador al asesor que atiende clientes) llega en la siguiente fase. Hasta entonces el agente sigue corriendo con la versión viva.</p>
+      </div>
+
+      <!-- Columna derecha: prompt real + estado del motor -->
+      <aside class="st-side">
+        <div class="cred st-section">
+          <div class="eyebrow">Prompt Inspector</div>
+          <h2>Lo que recibe el modelo</h2>
+          <p class="hint">Generado, nunca escrito a mano. <span class="mono" id="promptBytes"></span></p>
+          <div class="prompt-box" id="promptBox">cargando…</div>
+          <div class="st-actions">
+            <button class="btn-ghost" id="copyBtn">Copiar</button>
+            <select id="promptState" class="btn-ghost" aria-label="Etapa del lead"></select>
+          </div>
+        </div>
+
+        <div class="cred st-section">
+          <div class="eyebrow">Motor</div>
+          <h2>Estado real</h2>
+          <p class="hint">Valores con los que corre el sistema. Todavía no son editables desde aquí: se muestran para que sepas con qué estás jugando.</p>
+          <div class="locked" id="runtime"></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</div>
+<script src="/studio.js?v=1.0.0"></script>
+</body>
+</html>

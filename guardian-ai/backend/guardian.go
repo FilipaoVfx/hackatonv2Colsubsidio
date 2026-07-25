@@ -93,6 +93,10 @@ func (e *GuardianEngine) Config() AgentConfig {
 	return DefaultConfig()
 }
 
+// ragTopK: cuántos fragmentos de documentación entran al prompt cuando el
+// cliente pregunta algo informativo. El Agent Studio lo muestra en solo lectura.
+const ragTopK = 2
+
 const guardianFallbackMsg = "Estoy validando tu información, dame un momento por favor. Si prefieres, un asesor puede continuar contigo."
 
 // StartContact opens an outbound Guardian conversation. When greet is true a
@@ -239,7 +243,7 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	products, rules := e.catalog(ctx, convID)
 	var retrieved []Chunk
 	if e.rag.Enabled() && looksLikeQuestion(text) {
-		retrieved = e.rag.Retrieve(ctx, text, 2)
+		retrieved = e.rag.Retrieve(ctx, text, ragTopK)
 		if len(retrieved) > 0 {
 			refs := make([]map[string]string, len(retrieved))
 			for i, c := range retrieved {
@@ -253,7 +257,8 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 
 	// 3. Modular prompt + structured LLM turn.
 	prompt := BuildSystemPrompt(PromptInput{
-		State: st.state, Memory: memory, Products: products, Rules: rules,
+		Config: cfg,
+		State:  st.state, Memory: memory, Products: products, Rules: rules,
 		MissingVars: MissingQuestions(st.state, st.questions, known),
 		Retrieved:   retrieved, Recs: st.recs,
 	})
@@ -370,6 +375,11 @@ func (e *GuardianEngine) preload(ctx context.Context, callID, userID string, af 
 	}
 }
 
+// entityConfidence es el umbral a partir del cual un hecho extraído por el LLM
+// se considera CONFIRMADO y se persiste en el perfil. No es configurable desde
+// el Agent Studio: bajarlo llenaría la memoria estratégica de suposiciones.
+const entityConfidence = 0.6
+
 // serieKeys son las claves de entity con las que el LLM reporta el número de
 // afiliado/cédula que el cliente comparte en la conversación.
 var serieKeys = map[string]bool{"affiliate_serie": true, "numero_afiliado": true, "cedula": true, "document_number": true}
@@ -381,7 +391,7 @@ func (e *GuardianEngine) applySerie(ctx context.Context, callID string, st *guar
 		return
 	}
 	for _, ent := range entities {
-		if !serieKeys[strings.ToLower(ent.Key)] || ent.Confidence < 0.6 {
+		if !serieKeys[strings.ToLower(ent.Key)] || ent.Confidence < entityConfidence {
 			continue
 		}
 		if af, ok := e.affiliates.BySerie(fmt.Sprint(ent.Value)); ok {
@@ -424,7 +434,7 @@ func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st 
 	var batch []VariableValue
 	var keys []string
 	for _, ent := range entities {
-		if ent.Key == "" || ent.Confidence < 0.6 {
+		if ent.Key == "" || ent.Confidence < entityConfidence {
 			continue
 		}
 		if !accepted[strings.ToLower(ent.Key)] {

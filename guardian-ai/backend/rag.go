@@ -86,6 +86,15 @@ func NewRAG(dir string, llm *LLMClient) *RAG {
 
 func (r *RAG) Enabled() bool { return r != nil && len(r.chunks) > 0 }
 
+// Chunks informa cuántos fragmentos de documentación hay cargados (el Agent
+// Studio lo muestra como estado real del corpus).
+func (r *RAG) Chunks() int {
+	if r == nil {
+		return 0
+	}
+	return len(r.chunks)
+}
+
 // Mode reports how retrieval runs — surfaced in KNOWLEDGE_RETRIEVED.
 func (r *RAG) Mode() string {
 	if r.embedded {

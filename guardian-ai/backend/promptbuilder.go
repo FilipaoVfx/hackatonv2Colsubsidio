@@ -13,6 +13,10 @@ import (
 // PromptInput carries everything a turn knows. Empty slices simply omit their
 // section, so the builder degrades gracefully (e.g. no RAG, no rules yet).
 type PromptInput struct {
+	// Config es la configuración del Agent Studio con la que se compone este
+	// prompt. Su cero-valor se sustituye por los defaults de fábrica, así que
+	// un llamador que no la conozca sigue obteniendo el agente de siempre.
+	Config      AgentConfig
 	State       LeadState
 	Memory      CustomerMemory
 	Products    []ProtegeProduct
@@ -24,10 +28,16 @@ type PromptInput struct {
 
 // BuildSystemPrompt assembles the modular system prompt.
 func BuildSystemPrompt(in PromptInput) string {
+	cfg := in.Config
+	if cfg.Persona.AgentName == "" { // cero-valor: agente de fábrica
+		cfg = DefaultConfig()
+	}
 	sections := []string{
-		sectionPersona(),
+		sectionPersona(cfg),
+		sectionObjectives(cfg),
 		sectionBusinessRules(in),
 		sectionConversationRules(),
+		sectionSafety(cfg),
 		sectionState(in),
 		sectionMemory(in),
 		sectionRetrieved(in),
@@ -42,9 +52,64 @@ func BuildSystemPrompt(in PromptInput) string {
 	return strings.Join(nonEmpty, "\n\n")
 }
 
-func sectionPersona() string {
-	return `## Persona
-Eres "Guardian", asesor comercial de seguros de Colsubsidio por WhatsApp. Hablas español colombiano, cálido, cercano y profesional. Mensajes CORTOS (2-4 frases), tono de chat. Tu meta es entender a la persona y conectarla con la protección que de verdad le sirve.`
+// sectionPersona compone la persona desde la configuración del Studio. Cada
+// línea sale de un vocabulario cerrado (agentconfig.go): el administrador mueve
+// sliders, no escribe instrucciones. El nombre es el único texto suyo que llega
+// al modelo, y viene validado (sin saltos de línea ni marcas de formato).
+func sectionPersona(cfg AgentConfig) string {
+	p := cfg.Persona
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Persona\nEres %q, asesor comercial de seguros de Colsubsidio por WhatsApp. "+
+		"Hablas español colombiano. Tu meta es entender a la persona y conectarla con la protección que de verdad le sirve.\n", p.AgentName)
+	fmt.Fprintf(&b, "- Registro: %s\n", formalityPhrase(p.Formality))
+	fmt.Fprintf(&b, "- Trato: %s\n", closenessPhrase(p.Closeness))
+	fmt.Fprintf(&b, "- Empatía: %s\n", empathyPhrase(p.Empathy))
+	fmt.Fprintf(&b, "- Estilo comercial: %s\n", persuasionPhrase(p.Persuasion))
+	fmt.Fprintf(&b, "- Iniciativa: %s\n", proactivityPhrase(p.Proactivity))
+	fmt.Fprintf(&b, "- Longitud: %s\n", lengthPhrase(p.Length))
+	fmt.Fprintf(&b, "- Emojis: %s\n", emojiPhrase(p.Emojis))
+	fmt.Fprintf(&b, "- Humor: %s\n", humorPhrase(p.Humor))
+	return b.String()
+}
+
+// sectionObjectives lista los objetivos comerciales EN ORDEN: el orden es la
+// prioridad y así se le dice al modelo, para que la tensión entre "resolver
+// dudas" y "cerrar venta" se resuelva de forma predecible.
+func sectionObjectives(cfg AgentConfig) string {
+	if len(cfg.Sales.Goals) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Objetivos por prioridad\n")
+	for i, goal := range cfg.Sales.Goals {
+		phrase, ok := salesGoalPhrases[goal]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(&b, "%d. %s\n", i+1, phrase)
+	}
+	b.WriteString("Cuando dos objetivos compitan, manda el que esté más arriba.\n")
+	return b.String()
+}
+
+// sectionSafety son los límites que el administrador marca en la consola. Se
+// SUMAN a las reglas de conversación, que no son configurables: prohibir
+// inventar productos no es una opción, es el contrato con la API.
+func sectionSafety(cfg AgentConfig) string {
+	if len(cfg.Safety.Forbid) == 0 && safetyLevelPhrase(cfg.Safety.Level) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Límites (no negociables)\n")
+	for _, key := range cfg.Safety.Forbid {
+		if phrase, ok := safetyForbidPhrases[key]; ok {
+			fmt.Fprintf(&b, "- Nunca vas a %s.\n", phrase)
+		}
+	}
+	if level := safetyLevelPhrase(cfg.Safety.Level); level != "" {
+		b.WriteString(level + "\n")
+	}
+	return b.String()
 }
 
 func sectionBusinessRules(in PromptInput) string {

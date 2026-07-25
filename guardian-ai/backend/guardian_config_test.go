@@ -38,13 +38,16 @@ func promptFixture() PromptInput {
 	}
 }
 
-// TestPromptDefaultGolden es la PRUEBA DE ORO de la fase 0: con la
-// configuración por defecto, el prompt generado debe ser idéntico al que el
-// motor producía antes de que existiera el Agent Studio. Es lo que garantiza
-// que introducir la consola no cambia, por sí solo, el comportamiento del bot.
+// TestPromptDefaultGolden congela el prompt que produce la configuración por
+// defecto. En la fase 0 servía para probar que la consola no cambiaba nada; en
+// la fase 2, con la persona ya compuesta desde la configuración, sirve para lo
+// que de verdad importa a partir de ahora: que el comportamiento del agente de
+// fábrica no se mueva por accidente. Cambiar este archivo es una decisión que
+// se revisa en el diff, no un efecto colateral.
 //
-// Cuando la fase 2 haga que la persona se componga desde la configuración,
-// este test seguirá vigilando: los defaults tienen que reproducir este texto.
+// El texto por defecto conserva la sustancia del prompt original (español
+// colombiano, trato cordial, 2-4 frases, un emoji como mucho) y añade los
+// objetivos y los límites que ahora son explícitos.
 func TestPromptDefaultGolden(t *testing.T) {
 	got := BuildSystemPrompt(promptFixture())
 	path := filepath.Join("testdata", "prompt_default.golden")

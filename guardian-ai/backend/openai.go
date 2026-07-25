@@ -218,6 +218,11 @@ func (c *LLMClient) Decide(ctx context.Context, history []oaMessage) (*Decision,
 
 // ---- Guardian Conversation Engine (spec retrieval.md §8: Structured Outputs) ----
 
+// guardianTemperature: temperatura del turno Guardian. Baja a propósito — el
+// modelo extrae y explica, no improvisa. El Agent Studio la muestra en solo
+// lectura (todavía no es configurable).
+const guardianTemperature = 0.5
+
 // GuardianEntity is one confirmed fact extracted from the customer's message.
 // (json_schema strict forbids free-form objects, so entities is an array.)
 type GuardianEntity struct {
@@ -282,7 +287,7 @@ var guardianSchema = map[string]interface{}{
 func (c *LLMClient) DecideGuardian(ctx context.Context, system string, history []oaMessage) (*GuardianDecision, error) {
 	body := map[string]interface{}{
 		"model":       model,
-		"temperature": 0.5,
+		"temperature": guardianTemperature,
 		"response_format": map[string]interface{}{
 			"type": "json_schema",
 			"json_schema": map[string]interface{}{
