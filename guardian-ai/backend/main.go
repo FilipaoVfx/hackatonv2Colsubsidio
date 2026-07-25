@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // hookSnapshot is the lock-free, JSON-serializable view of the last webhook.
@@ -53,10 +54,13 @@ func main() {
 	// Real Supabase persistence via pgx (ADR-004/005). Optional: if the DB URL
 	// is unset or unreachable the demo still runs on the in-memory store.
 	var analytics *Analytics
+	var persistPool *pgxpool.Pool // réplica opcional de la config del Studio
+	var configStore *ConfigStore
 	if p, err := NewSupabasePersistence(); err != nil {
 		log.Printf("supabase persistence disabled: %v", err)
 	} else if p != nil {
 		bus.Subscribe("*", p.Append)
+		persistPool = p.Pool()
 		analytics = NewAnalytics(p.Pool())
 		// Every finished call is projected into the analytics tables so it
 		// shows up in "Pipeline de Llamadas" (demo, real GPT call or web call).
@@ -118,6 +122,17 @@ func main() {
 		affiliates := NewAffiliates()
 		guardian = NewGuardianEngine(bus, protegeAPI, NewLLMClient(), NewTools(protegeAPI, bus), sessions, rag, affiliates)
 		log.Printf("guardian conversation engine enabled (whatsapp brain, rag=%s, afiliado360=%v)", rag.Mode(), affiliates.Enabled())
+
+		// Agent Studio (plan 10_PLAN_AGENT_STUDIO.md): la configuración
+		// publicada se carga del disco y se aplica al motor. Sin archivo, sin
+		// base o con un archivo ilegible, el motor arranca con los defaults de
+		// fábrica — que son exactamente el comportamiento de siempre.
+		configStore = NewConfigStore(configDir(), persistPool)
+		guardian.SetConfig(configStore.Published())
+		if e := configStore.LoadError(); e != "" {
+			log.Printf("agent studio: arranque degradado — %s", e)
+		}
+		log.Printf("agent studio: configuración v%d aplicada al motor", configStore.Published().Version)
 
 		// Seed de reglas 360 (derivadas de la base de afiliados) vía el CRUD de
 		// la propia API (POST /api/v1/rules) — mismo camino para mock y real.

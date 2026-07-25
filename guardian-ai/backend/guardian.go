@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,6 +40,12 @@ type GuardianEngine struct {
 	catMu    sync.Mutex
 	products []ProtegeProduct
 	rules    []ProtegeRule
+
+	// cfg es la configuración publicada del Agent Studio. Se lee UNA vez al
+	// empezar cada turno y ese snapshot inmutable sirve todo el turno: publicar
+	// a mitad de una conversación cambia el puntero, nunca la configuración que
+	// el turno en curso ya está usando. Sin locks en la ruta caliente.
+	cfg atomic.Pointer[AgentConfig]
 }
 
 type guardianConv struct {
@@ -61,6 +68,29 @@ func NewGuardianEngine(bus *EventBus, api *ColsubsidioClient, llm GuardianLLM, t
 
 func (e *GuardianEngine) Enabled() bool {
 	return e != nil && e.api != nil && e.api.Enabled() && e.llm != nil
+}
+
+// SetConfig publica una configuración del Agent Studio. La copia se guarda
+// completa y no vuelve a mutarse: los turnos que ya empezaron terminan con la
+// anterior, el siguiente turno de CUALQUIER conversación usa la nueva.
+func (e *GuardianEngine) SetConfig(cfg AgentConfig) {
+	if e == nil {
+		return
+	}
+	snapshot := cfg.Clone()
+	e.cfg.Store(&snapshot)
+}
+
+// Config devuelve el snapshot vivo. Nunca nil: sin configuración publicada, el
+// motor se comporta con los defaults de fábrica.
+func (e *GuardianEngine) Config() AgentConfig {
+	if e == nil {
+		return DefaultConfig()
+	}
+	if cfg := e.cfg.Load(); cfg != nil {
+		return *cfg
+	}
+	return DefaultConfig()
 }
 
 const guardianFallbackMsg = "Estoy validando tu información, dame un momento por favor. Si prefieres, un asesor puede continuar contigo."
@@ -172,6 +202,11 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 		return fmt.Errorf("guardian: unknown conversation %s", convID)
 	}
 
+	// Snapshot de configuración del turno: se lee UNA vez y no se vuelve a
+	// consultar. Si alguien publica en el Studio mientras este turno corre, el
+	// cambio entra en el siguiente — nunca a mitad de una respuesta.
+	cfg := e.Config()
+
 	e.bus.Publish(convID, MESSAGE_RECEIVED, "whatsapp_adapter", map[string]interface{}{"is_final": true})
 	e.bus.Publish(convID, TRANSCRIPT_UPDATED, "whatsapp_adapter", map[string]interface{}{
 		"role": "user", "text": text, "is_final": true,
@@ -224,14 +259,18 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	})
 	st.history = trimHistory(append(st.history, oaMessage{Role: "user", Content: text}))
 
-	e.bus.Publish(convID, LLM_REQUESTED, "guardian_engine", map[string]interface{}{"strategy": string(st.state)})
+	e.bus.Publish(convID, LLM_REQUESTED, "guardian_engine", map[string]interface{}{
+		"strategy": string(st.state), "config_version": cfg.Version,
+	})
 	d, err := e.llm.DecideGuardian(ctx, prompt, st.history)
 	if err != nil {
 		e.bus.Publish(convID, ERROR_OCCURRED, "llm_gateway", map[string]interface{}{
 			"source": "llm_gateway", "code": "llm_error", "message": err.Error(), "recoverable": true,
 		})
 		e.sendAgent(convID, phone, guardianFallbackMsg)
-		e.turnCompleted(convID, st, started, "", 0, nil, nil, toolCalls, err)
+		e.turnCompleted(convID, st, started, turnOutcome{
+			toolCalls: toolCalls, configVersion: cfg.Version, err: err,
+		})
 		return nil // webhook stays 200; error already registered
 	}
 	e.bus.Publish(convID, LLM_RESPONSE, "llm_gateway", map[string]interface{}{
@@ -299,7 +338,11 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 		e.maybeAdvance(ctx, convID, phone, st, known, runTool)
 	}
 
-	e.turnCompleted(convID, st, started, d.Intent, d.Confidence, newVars, rejectedVars, toolCalls, nil)
+	e.turnCompleted(convID, st, started, turnOutcome{
+		intent: d.Intent, confidence: d.Confidence,
+		newVars: newVars, rejectedVars: rejectedVars,
+		toolCalls: toolCalls, configVersion: cfg.Version,
+	})
 	return nil
 }
 
@@ -607,18 +650,31 @@ func (e *GuardianEngine) sendAgentWithButtons(convID, phone, text string, button
 	e.mu.Unlock()
 }
 
-func (e *GuardianEngine) turnCompleted(convID string, st *guardianConv, started time.Time,
-	intent string, confidence float64, newVars, rejectedVars, toolCalls []string, err error) {
+// turnOutcome agrupa lo que produjo un turno: intención leída, variables
+// escritas, variables descartadas, tools usadas y la versión de configuración
+// con la que se comportó el agente. Nació cuando la lista de parámetros de
+// turnCompleted dejó de leerse de un vistazo.
+type turnOutcome struct {
+	intent        string
+	confidence    float64
+	newVars       []string
+	rejectedVars  []string
+	toolCalls     []string
+	configVersion int
+	err           error
+}
 
+func (e *GuardianEngine) turnCompleted(convID string, st *guardianConv, started time.Time, out turnOutcome) {
 	payload := map[string]interface{}{
 		"conversation_id": convID, "user_id": st.userID, "state": string(st.state),
-		"intent": intent, "confidence": confidence,
+		"intent": out.intent, "confidence": out.confidence,
 		"latency_ms_total": time.Since(started).Milliseconds(),
-		"tool_calls":       toolCalls, "new_variables": newVars,
-		"rejected_variables": rejectedVars, "error": nil,
+		"tool_calls":       out.toolCalls, "new_variables": out.newVars,
+		"rejected_variables": out.rejectedVars,
+		"config_version":     out.configVersion, "error": nil,
 	}
-	if err != nil {
-		payload["error"] = err.Error()
+	if out.err != nil {
+		payload["error"] = out.err.Error()
 	}
 	e.bus.Publish(convID, TURN_COMPLETED, "guardian_engine", payload)
 }

@@ -179,8 +179,12 @@ Cada transición se refleja con `STATE_CHANGED`.
 - **Efecto:** estado → `THINKING`.
 - **Payload:**
 ```json
-{ "prompt_ref": "string", "strategy": "family_protector|pet_owner|professional|entrepreneur|traveler" }
+{ "prompt_ref": "string", "strategy": "family_protector|pet_owner|professional|entrepreneur|traveler",
+  "config_version": 0 }
 ```
+- `config_version` (Guardian): versión de la configuración del Agent Studio con
+  la que se compuso el prompt de ESTE turno. El motor lee un snapshot al empezar
+  el turno; publicar a mitad de una respuesta no lo altera.
 
 #### `LLM_RESPONSE`
 - **Disparador:** el modelo devuelve respuesta.
@@ -325,13 +329,16 @@ PROJECT_MATCHING → READY_FOR_ADVISOR | NURTURING → COMPLETED`) emitida por
   "conversation_id": "uuid", "user_id": "uuid", "state": "PROFILE_DISCOVERY",
   "intent": "string", "confidence": 0.0, "latency_ms_total": 0,
   "tool_calls": ["get_variables", "save_variable"], "new_variables": ["has_pet"],
-  "rejected_variables": ["signo_zodiacal"], "error": null
+  "rejected_variables": ["signo_zodiacal"], "config_version": 0, "error": null
 }
 ```
 - `new_variables`: claves escritas en el perfil este turno.
 - `rejected_variables`: claves que el LLM propuso **fuera del vocabulario** de
   la API y por eso no se guardaron (`null` cuando no hubo). Es la traza de
   alucinaciones de esquema — ver `09_FEATURE_ROBUSTEZ_FLUJO_BOT.md` §1.6.
+- `config_version`: configuración del Agent Studio con la que se comportó el
+  agente en este turno (`0` = defaults de fábrica). Es lo que permite explicar
+  después por qué respondió como respondió — ver `10_PLAN_AGENT_STUDIO.md` §4.
 
 ---
 

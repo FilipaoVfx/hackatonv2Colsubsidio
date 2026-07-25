@@ -13,6 +13,9 @@ services:
       - mock-protege
     expose:
       - "3000"
+    volumes:
+      # Configuración del Agent Studio: sobrevive a rebuilds y recreaciones.
+      - guardian-config:/var/lib/guardian
     restart: unless-stopped
 
   # Mock local de la Colsubsidio Protege API (mismo contrato OpenAPI 0.1.0;
@@ -34,3 +37,6 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend:/usr/share/nginx/html:ro
     restart: unless-stopped
+
+volumes:
+  guardian-config:
