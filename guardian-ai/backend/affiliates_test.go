@@ -55,12 +55,16 @@ func TestAffiliatesBySerie(t *testing.T) {
 func TestAffiliateVariablesCanonical(t *testing.T) {
 	af := Affiliate{Serie: "9", Gender: "F", AgeRange: "20 a 35 años",
 		SalaryRange: "Entre 1 y 1.5 SMLV", City: "BOGOTA D.C.", Drugstore: true}
-	vars := af.Variables()
+	// serie CONFIRMADA por el cliente: registro real del maestro
+	vars := af.Variables(true)
 	got := map[string]interface{}{}
 	for _, v := range vars {
 		got[v.Key] = v.Value
 		if v.Source != "colsubsidio_360" {
 			t.Errorf("source = %q", v.Source)
+		}
+		if v.Confidence == nil || *v.Confidence != 0.85 {
+			t.Errorf("confianza de %q = %v, want 0.85", v.Key, v.Confidence)
 		}
 	}
 	if got["uses_drugstore"] != true || got["city"] != "BOGOTA D.C." {
@@ -69,6 +73,22 @@ func TestAffiliateVariablesCanonical(t *testing.T) {
 	// monthly_income estimado = 1.25 × SMLV (para que las reglas de ingreso disparen)
 	if got["monthly_income"] != 1.25*smlv {
 		t.Errorf("monthly_income = %v, want %v", got["monthly_income"], 1.25*smlv)
+	}
+}
+
+// TestAffiliateVariablesEstimatedOmitsIncome: la vinculación por hash es una
+// estimación de demo — no puede calificar la etapa financiera ni disparar las
+// reglas de capacidad con un ingreso que nadie confirmó.
+func TestAffiliateVariablesEstimatedOmitsIncome(t *testing.T) {
+	af := Affiliate{Serie: "9", AgeRange: "20 a 35 años",
+		SalaryRange: "Entre 1 y 1.5 SMLV", City: "BOGOTA D.C.", Drugstore: true}
+	for _, v := range af.Variables(false) {
+		if v.Key == "monthly_income" {
+			t.Error("un perfil estimado no debe traer monthly_income")
+		}
+		if v.Confidence == nil || *v.Confidence >= 0.6 {
+			t.Errorf("confianza de %q = %v, want < 0.6 (umbral de hecho confirmado)", v.Key, v.Confidence)
+		}
 	}
 }
 

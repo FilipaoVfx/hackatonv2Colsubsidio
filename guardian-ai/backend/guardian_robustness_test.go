@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -107,6 +108,127 @@ func TestWebhookDedupeIgnoresRedelivery(t *testing.T) {
 	dedupe.now = func() time.Time { return time.Now().Add(30 * time.Minute) }
 	if _, _ = processKapsoWebhook(body, "whatsapp.message.received", "", "", dedupe, process); calls != 3 {
 		t.Errorf("fuera de la ventana TTL: calls=%d, want 3", calls)
+	}
+}
+
+// TestGuardianRejectsInventedVariableKeys: el LLM solo puede escribir en el
+// perfil las variable_key del catálogo de la API (más la serie de afiliado).
+// Una clave inventada no entra a la memoria estratégica y queda reportada.
+func TestGuardianRejectsInventedVariableKeys(t *testing.T) {
+	srv := guardianAPI(t)
+	defer srv.Close()
+
+	llm := &scriptedLLM{decisions: []GuardianDecision{
+		{Intent: "provide_info", Confidence: 0.9, NextAction: ActionAsk, AssistantMessage: "ok",
+			Entities: []GuardianEntity{
+				{Key: "full_name", Value: "Ana", Confidence: 0.95},         // del catálogo
+				{Key: "affiliate_serie", Value: "2", Confidence: 0.95},     // serie
+				{Key: "signo_zodiacal", Value: "leo", Confidence: 0.99},    // inventada
+				{Key: "prefiere_descuento", Value: true, Confidence: 0.99}, // inventada
+			}},
+	}}
+	g, cap := newGuardianForTest(t, srv.URL, llm)
+	if _, err := g.HandleInbound(context.Background(), "+573000000007", "hola"); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := map[string]bool{}
+	cap.mu.Lock()
+	for _, ev := range cap.events {
+		if ev.Type == FEATURE_UPDATED {
+			if k, ok := ev.Payload["key"].(string); ok {
+				saved[k] = true
+			}
+		}
+	}
+	cap.mu.Unlock()
+	if !saved["full_name"] {
+		t.Error("una clave del catálogo debe guardarse")
+	}
+	for _, k := range []string{"signo_zodiacal", "prefiere_descuento"} {
+		if saved[k] {
+			t.Errorf("la clave inventada %q no debe entrar al perfil", k)
+		}
+	}
+
+	tc, ok := cap.first(TURN_COMPLETED)
+	if !ok {
+		t.Fatal("sin TURN_COMPLETED")
+	}
+	rejected, _ := tc.Payload["rejected_variables"].([]string)
+	if len(rejected) != 2 {
+		t.Errorf("rejected_variables = %v, want las 2 claves inventadas", tc.Payload["rejected_variables"])
+	}
+}
+
+// TestGuardianCatalogRecoversAfterFailure: el catálogo de productos/reglas no
+// puede cachear su propio fallo (con sync.Once el prompt se quedaba sin
+// productos hasta reiniciar el proceso).
+func TestGuardianCatalogRecoversAfterFailure(t *testing.T) {
+	base := guardianAPI(t)
+	defer base.Close()
+	down := true
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/products", func(w http.ResponseWriter, r *http.Request) {
+		if down {
+			http.Error(w, "upstream down", 500)
+			return
+		}
+		http.Redirect(w, r, base.URL+r.URL.RequestURI(), 307)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, base.URL+r.URL.RequestURI(), 307)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	llm := &scriptedLLM{}
+	g, _ := newGuardianForTest(t, srv.URL, llm)
+	ctx := context.Background()
+	if _, err := g.HandleInbound(ctx, "+573000000008", "hola"); err != nil {
+		t.Fatal(err)
+	}
+	if len(llm.prompts) > 0 && strings.Contains(llm.prompts[0], "Catálogo REAL") {
+		t.Error("con /products caído el prompt no debería traer catálogo")
+	}
+
+	down = false
+	if _, err := g.HandleInbound(ctx, "+573000000008", "y qué me ofreces?"); err != nil {
+		t.Fatal(err)
+	}
+	if len(llm.prompts) < 2 || !strings.Contains(llm.prompts[1], "Catálogo REAL") {
+		t.Error("el catálogo no se recuperó tras volver la API")
+	}
+}
+
+// TestGuardianSweepReleasesExpiredConversations: pasada la ventana de 24h la
+// conversación abandonada se libera de memoria (antes vivía hasta el reinicio).
+func TestGuardianSweepReleasesExpiredConversations(t *testing.T) {
+	srv := guardianAPI(t)
+	defer srv.Close()
+	g, _ := newGuardianForTest(t, srv.URL, &scriptedLLM{})
+
+	fake := time.Now()
+	g.sessions.now = func() time.Time { return fake }
+	if _, err := g.HandleInbound(context.Background(), "+573000000009", "hola"); err != nil {
+		t.Fatal(err)
+	}
+	if n := g.Sweep(); n != 0 {
+		t.Errorf("una sesión viva no debe barrerse (barridas %d)", n)
+	}
+
+	fake = fake.Add(waWindow + time.Minute)
+	if n := g.Sweep(); n != 1 {
+		t.Errorf("conversaciones liberadas = %d, want 1", n)
+	}
+	g.mu.Lock()
+	live := len(g.convs)
+	g.mu.Unlock()
+	if live != 0 {
+		t.Errorf("quedan %d conversaciones en memoria", live)
+	}
+	if len(g.sessions.List()) != 0 {
+		t.Error("la sesión caducada sigue listada")
 	}
 }
 

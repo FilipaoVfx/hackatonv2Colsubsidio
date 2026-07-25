@@ -33,8 +33,10 @@ type GuardianEngine struct {
 	// y además pueden abrir dos conversaciones para la misma persona.
 	turns keyedMutex
 
-	// per-process catalog cache (products/rules/questions change rarely)
-	catOnce  sync.Once
+	// per-process catalog cache (products/rules change rarely). Solo se cachea
+	// el ÉXITO: con sync.Once un primer fallo dejaba al prompt sin catálogo
+	// hasta reiniciar el proceso, y el agente sin productos que nombrar.
+	catMu    sync.Mutex
 	products []ProtegeProduct
 	rules    []ProtegeRule
 }
@@ -129,7 +131,7 @@ func (e *GuardianEngine) start(ctx context.Context, phone string, greet bool) (s
 	// applySerie() lo reemplaza por el registro REAL del maestro.
 	if isNew && e.affiliates.Enabled() {
 		if af, ok := e.affiliates.ForPhone(phone); ok {
-			e.preload(ctx, callID, user.ID, af, "estimación demo (hash de teléfono)")
+			e.preload(ctx, callID, user.ID, af, "estimación demo (hash de teléfono)", false)
 		}
 	}
 
@@ -229,7 +231,7 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 			"source": "llm_gateway", "code": "llm_error", "message": err.Error(), "recoverable": true,
 		})
 		e.sendAgent(convID, phone, guardianFallbackMsg)
-		e.turnCompleted(convID, st, started, "", 0, nil, toolCalls, err)
+		e.turnCompleted(convID, st, started, "", 0, nil, nil, toolCalls, err)
 		return nil // webhook stays 200; error already registered
 	}
 	e.bus.Publish(convID, LLM_RESPONSE, "llm_gateway", map[string]interface{}{
@@ -245,7 +247,7 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	}
 
 	// 4. Immediate persistence of confirmed facts (spec §4 fase 3).
-	newVars := e.persistEntities(ctx, convID, st, d.Entities, known, runTool)
+	newVars, rejectedVars := e.persistEntities(ctx, convID, st, d.Entities, known, runTool)
 	// Cliente confirmó su número de afiliado → lookup REAL en el maestro 360.
 	e.applySerie(ctx, convID, st, d.Entities)
 
@@ -289,16 +291,22 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 		e.maybeAdvance(ctx, convID, phone, st, known, runTool)
 	}
 
-	e.turnCompleted(convID, st, started, d.Intent, d.Confidence, newVars, toolCalls, nil)
+	e.turnCompleted(convID, st, started, d.Intent, d.Confidence, newVars, rejectedVars, toolCalls, nil)
 	return nil
 }
 
 // preload saves an affiliate profile into the API and emits the features.
 // fuente declara el origen en la UI: "estimación demo (hash)" al abrir, o
 // "maestro de afiliados (serie confirmada)" cuando el cliente da su número.
-func (e *GuardianEngine) preload(ctx context.Context, callID, userID string, af Affiliate, fuente string) {
+//
+// confirmed distingue las dos: la vinculación por hash es una ESTIMACIÓN de
+// demo (la base es anónima, sin teléfonos), así que entra con confianza baja y
+// sin `monthly_income` — ese dato calificaría la etapa financiera y dispararía
+// reglas de capacidad con un ingreso que nadie confirmó. Con la serie que da el
+// cliente sí es el registro real del maestro y entra completo.
+func (e *GuardianEngine) preload(ctx context.Context, callID, userID string, af Affiliate, fuente string, confirmed bool) {
 	conf := 1.0
-	vars := append(af.Variables(),
+	vars := append(af.Variables(confirmed),
 		VariableValue{Key: "fuente_perfil", Value: fuente, Source: "colsubsidio_360", Confidence: &conf})
 	if res := e.tools.Run(ctx, callID, "save_variable",
 		map[string]interface{}{"user_id": userID, "variables": vars}); res.Err != nil {
@@ -326,20 +334,50 @@ func (e *GuardianEngine) applySerie(ctx context.Context, callID string, st *guar
 			continue
 		}
 		if af, ok := e.affiliates.BySerie(fmt.Sprint(ent.Value)); ok {
-			e.preload(ctx, callID, st.userID, af, "maestro de afiliados (serie confirmada)")
+			e.preload(ctx, callID, st.userID, af, "maestro de afiliados (serie confirmada)", true)
 			return
 		}
 	}
 }
 
-// persistEntities saves confident extracted facts IMMEDIATELY and returns keys.
-func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st *guardianConv,
-	entities []GuardianEntity, known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) []string {
+// acceptedKeys is the closed vocabulary the LLM may write into the customer's
+// profile: las variable_key del catálogo de la API, más las claves con las que
+// el cliente comparte su número de afiliado. Todo lo demás es una clave
+// inventada por el modelo y NO entra a la memoria estratégica.
+//
+// Las claves ya presentes en la API se aceptan aunque no estén en el catálogo:
+// las escribió el motor (perfil 360, fuente_perfil) o un catálogo anterior.
+func acceptedKeys(questions []ProtegeQuestion, known map[string]interface{}) map[string]bool {
+	out := make(map[string]bool, len(questions)+len(known)+len(serieKeys))
+	for _, q := range questions {
+		if q.VariableKey != "" {
+			out[strings.ToLower(q.VariableKey)] = true
+		}
+	}
+	for k := range known {
+		out[strings.ToLower(k)] = true
+	}
+	for k := range serieKeys {
+		out[k] = true
+	}
+	return out
+}
 
+// persistEntities saves confident extracted facts IMMEDIATELY and returns the
+// keys written. Las claves fuera del vocabulario se descartan y se reportan en
+// TURN_COMPLETED.rejected_variables (trazabilidad sin ruido de errores).
+func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st *guardianConv,
+	entities []GuardianEntity, known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) (saved, rejected []string) {
+
+	accepted := acceptedKeys(st.questions, known)
 	var batch []VariableValue
 	var keys []string
 	for _, ent := range entities {
 		if ent.Key == "" || ent.Confidence < 0.6 {
+			continue
+		}
+		if !accepted[strings.ToLower(ent.Key)] {
+			rejected = append(rejected, ent.Key)
 			continue
 		}
 		conf := ent.Confidence
@@ -347,11 +385,11 @@ func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st 
 		keys = append(keys, ent.Key)
 	}
 	if len(batch) == 0 {
-		return nil
+		return nil, rejected
 	}
 	res := runTool("save_variable", map[string]interface{}{"user_id": st.userID, "variables": batch})
 	if res.Err != nil {
-		return nil // ERROR_OCCURRED ya emitido por el tool engine si aplica
+		return nil, rejected // ERROR_OCCURRED ya emitido por el tool engine si aplica
 	}
 	for _, v := range batch {
 		prev := known[v.Key]
@@ -360,7 +398,7 @@ func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st 
 			"key": v.Key, "value": v.Value, "previous": prev, "source": "whatsapp",
 		})
 	}
-	return keys
+	return keys, rejected
 }
 
 // maybeAdvance walks ONE legal arrow when the current stage is complete.
@@ -552,13 +590,14 @@ func (e *GuardianEngine) sendAgent(convID, phone, text string) {
 }
 
 func (e *GuardianEngine) turnCompleted(convID string, st *guardianConv, started time.Time,
-	intent string, confidence float64, newVars, toolCalls []string, err error) {
+	intent string, confidence float64, newVars, rejectedVars, toolCalls []string, err error) {
 
 	payload := map[string]interface{}{
 		"conversation_id": convID, "user_id": st.userID, "state": string(st.state),
 		"intent": intent, "confidence": confidence,
 		"latency_ms_total": time.Since(started).Milliseconds(),
-		"tool_calls":       toolCalls, "new_variables": newVars, "error": nil,
+		"tool_calls":       toolCalls, "new_variables": newVars,
+		"rejected_variables": rejectedVars, "error": nil,
 	}
 	if err != nil {
 		payload["error"] = err.Error()
@@ -575,16 +614,42 @@ func (e *GuardianEngine) fetchQuestions(ctx context.Context, convID string) ([]P
 	return qs, nil
 }
 
+// catalog returns products and rules, fetching what is still missing. Cachea
+// solo lo que llegó: un fallo se reintenta en el turno siguiente.
 func (e *GuardianEngine) catalog(ctx context.Context, convID string) ([]ProtegeProduct, []ProtegeRule) {
-	e.catOnce.Do(func() {
+	e.catMu.Lock()
+	defer e.catMu.Unlock()
+	if len(e.products) == 0 {
 		if res := e.tools.Run(ctx, convID, "get_products", nil); res.Err == nil {
 			e.products, _ = res.Data.([]ProtegeProduct)
 		}
+	}
+	if len(e.rules) == 0 {
 		if res := e.tools.Run(ctx, convID, "get_rules", map[string]interface{}{}); res.Err == nil {
 			e.rules, _ = res.Data.([]ProtegeRule)
 		}
-	})
+	}
 	return e.products, e.rules
+}
+
+// Sweep releases the conversations whose WhatsApp window expired. Se llama
+// periódicamente desde main: sin esto el estado de cada conversación
+// abandonada (historial, catálogo, recomendaciones) vivía hasta el reinicio.
+func (e *GuardianEngine) Sweep() int {
+	if e == nil {
+		return 0
+	}
+	expired := e.sessions.Sweep()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n := 0
+	for _, convID := range expired {
+		if _, ok := e.convs[convID]; ok {
+			delete(e.convs, convID)
+			n++
+		}
+	}
+	return n
 }
 
 func (e *GuardianEngine) close(convID string) {

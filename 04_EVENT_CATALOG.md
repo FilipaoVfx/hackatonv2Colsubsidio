@@ -324,9 +324,14 @@ PROJECT_MATCHING → READY_FOR_ADVISOR | NURTURING → COMPLETED`) emitida por
 {
   "conversation_id": "uuid", "user_id": "uuid", "state": "PROFILE_DISCOVERY",
   "intent": "string", "confidence": 0.0, "latency_ms_total": 0,
-  "tool_calls": ["get_variables", "save_variable"], "new_variables": ["has_pet"], "error": null
+  "tool_calls": ["get_variables", "save_variable"], "new_variables": ["has_pet"],
+  "rejected_variables": ["signo_zodiacal"], "error": null
 }
 ```
+- `new_variables`: claves escritas en el perfil este turno.
+- `rejected_variables`: claves que el LLM propuso **fuera del vocabulario** de
+  la API y por eso no se guardaron (`null` cuando no hubo). Es la traza de
+  alucinaciones de esquema — ver `09_FEATURE_ROBUSTEZ_FLUJO_BOT.md` §1.6.
 
 ---
 
