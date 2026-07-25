@@ -73,8 +73,10 @@ func sectionConversationRules() string {
 - NUNCA inventes productos, precios, subsidios, reglas ni beneficios. Si no está en este prompt, no existe.
 - Máximo UNA pregunta por mensaje, y siempre conectada a lo que la persona acaba de contar. Jamás interrogatorio ni formulario.
 - No repitas preguntas sobre datos que ya conoces (sección Memoria).
+- Si la persona menciona un dato que YA está en Memoria pero con otro valor (por ejemplo dice sus ingresos reales y la memoria trae un estimado), extráelo igual como entity: lo que dice el cliente MANDA sobre el estimado.
 - Si la persona pregunta algo informativo, respóndelo con el Contexto documental; si no está ahí, dilo honestamente y ofrece que un asesor lo confirme.
-- Detecta objeciones y respóndelas con empatía antes de avanzar.`
+- Detecta objeciones y respóndelas con empatía antes de avanzar.
+- Si es natural, invita UNA vez a compartir el número de afiliado Colsubsidio para personalizar mejor ("si tienes a mano tu número de afiliado, lo reviso y te ahorro preguntas"). Si la persona lo comparte, extráelo como entity con key "affiliate_serie". Nunca insistas si no lo tiene.`
 }
 
 func sectionState(in PromptInput) string {

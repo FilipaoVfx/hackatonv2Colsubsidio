@@ -91,9 +91,11 @@ func (e *GuardianEngine) start(ctx context.Context, phone string, greet bool) (s
 		"user_id": user.ID, "is_new_user": isNew,
 	})
 	e.transitionRaw(callID, StateNew, StateAffiliation, "conversación abierta")
-	// The API already answered the affiliation question (search result).
+	// Semántica precisa: esto es el estado en el PIPELINE de ventas (Protege
+	// API), no la afiliación a Colsubsidio. Ser "nuevo" aquí y a la vez
+	// afiliado conocido del maestro 360 es el caso de negocio normal.
 	e.bus.Publish(callID, FEATURE_UPDATED, "guardian_engine", map[string]interface{}{
-		"key": "afiliacion", "value": map[bool]string{true: "usuario_nuevo", false: "usuario_existente"}[isNew],
+		"key": "estado_pipeline", "value": map[bool]string{true: "nuevo", false: "conocido"}[isNew],
 		"previous": nil, "source": "colsubsidio_api",
 	})
 	e.transitionRaw(callID, StateAffiliation, StateProfile, "identidad resuelta por la API")
@@ -104,20 +106,13 @@ func (e *GuardianEngine) start(ctx context.Context, phone string, greet bool) (s
 	e.mu.Unlock()
 	e.sessions.Register(phone, callID)
 
-	// Afiliado 360: precarga del perfil desde la base de afiliados (solo la
-	// primera vez que vemos al usuario; en visitas posteriores las variables ya
-	// están en la API). El asesor abre sabiendo lo que Colsubsidio ya sabe.
+	// Afiliado 360: ESTIMACIÓN inicial del perfil (vinculación demo por hash —
+	// la base es anónima, sin teléfonos). fuente_perfil lo declara en la UI.
+	// Cuando el cliente confirma su número de afiliado en la conversación,
+	// applySerie() lo reemplaza por el registro REAL del maestro.
 	if isNew && e.affiliates.Enabled() {
 		if af, ok := e.affiliates.ForPhone(phone); ok {
-			vars := af.Variables()
-			if res := e.tools.Run(ctx, callID, "save_variable",
-				map[string]interface{}{"user_id": user.ID, "variables": vars}); res.Err == nil {
-				for _, v := range vars {
-					e.bus.Publish(callID, FEATURE_UPDATED, "guardian_engine", map[string]interface{}{
-						"key": v.Key, "value": v.Value, "previous": nil, "source": "colsubsidio_360",
-					})
-				}
-			}
+			e.preload(ctx, callID, user.ID, af, "estimación demo (hash de teléfono)")
 		}
 	}
 
@@ -221,6 +216,8 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 
 	// 4. Immediate persistence of confirmed facts (spec §4 fase 3).
 	newVars := e.persistEntities(ctx, convID, st, d.Entities, known, runTool)
+	// Cliente confirmó su número de afiliado → lookup REAL en el maestro 360.
+	e.applySerie(ctx, convID, st, d.Entities)
 
 	// 5. Deterministic state advancement (the LLM proposes; the engine decides).
 	action := d.NextAction
@@ -250,6 +247,45 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 
 	e.turnCompleted(convID, st, started, d.Intent, d.Confidence, newVars, toolCalls, nil)
 	return nil
+}
+
+// preload saves an affiliate profile into the API and emits the features.
+// fuente declara el origen en la UI: "estimación demo (hash)" al abrir, o
+// "maestro de afiliados (serie confirmada)" cuando el cliente da su número.
+func (e *GuardianEngine) preload(ctx context.Context, callID, userID string, af Affiliate, fuente string) {
+	conf := 1.0
+	vars := append(af.Variables(),
+		VariableValue{Key: "fuente_perfil", Value: fuente, Source: "colsubsidio_360", Confidence: &conf})
+	if res := e.tools.Run(ctx, callID, "save_variable",
+		map[string]interface{}{"user_id": userID, "variables": vars}); res.Err != nil {
+		return
+	}
+	for _, v := range vars {
+		e.bus.Publish(callID, FEATURE_UPDATED, "guardian_engine", map[string]interface{}{
+			"key": v.Key, "value": v.Value, "previous": nil, "source": "colsubsidio_360",
+		})
+	}
+}
+
+// serieKeys son las claves de entity con las que el LLM reporta el número de
+// afiliado/cédula que el cliente comparte en la conversación.
+var serieKeys = map[string]bool{"affiliate_serie": true, "numero_afiliado": true, "cedula": true, "document_number": true}
+
+// applySerie hace el lookup REAL en el maestro cuando el cliente confirma su
+// número de afiliado; reemplaza la estimación inicial (upsert de variables).
+func (e *GuardianEngine) applySerie(ctx context.Context, callID string, st *guardianConv, entities []GuardianEntity) {
+	if !e.affiliates.Enabled() {
+		return
+	}
+	for _, ent := range entities {
+		if !serieKeys[strings.ToLower(ent.Key)] || ent.Confidence < 0.6 {
+			continue
+		}
+		if af, ok := e.affiliates.BySerie(fmt.Sprint(ent.Value)); ok {
+			e.preload(ctx, callID, st.userID, af, "maestro de afiliados (serie confirmada)")
+			return
+		}
+	}
 }
 
 // persistEntities saves confident extracted facts IMMEDIATELY and returns keys.

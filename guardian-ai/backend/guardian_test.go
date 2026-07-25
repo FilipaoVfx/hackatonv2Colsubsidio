@@ -203,6 +203,50 @@ func TestGuardianIllegalActionIgnored(t *testing.T) {
 	}
 }
 
+// TestGuardianSerieConfirmada: el cliente da su número de afiliado → lookup
+// REAL en el maestro (BySerie) → perfil reemplaza la estimación, con
+// fuente_perfil "serie confirmada".
+func TestGuardianSerieConfirmada(t *testing.T) {
+	srv := guardianAPI(t)
+	defer srv.Close()
+	llm := &scriptedLLM{decisions: []GuardianDecision{
+		{Intent: "provide_info", Confidence: 0.9, NextAction: ActionAsk, AssistantMessage: "¡Listo, te reviso!",
+			Entities: []GuardianEntity{{Key: "affiliate_serie", Value: "2", Confidence: 0.95}}},
+	}}
+	bus := NewEventBus()
+	cap := &capture{}
+	bus.Subscribe("*", cap.on)
+	api := &ColsubsidioClient{base: srv.URL, http: &http.Client{Timeout: 5 * time.Second}}
+	t.Setenv("AFFILIATES_CSV", writeSampleCSV(t))
+	aff := NewAffiliates()
+	g := NewGuardianEngine(bus, api, llm, NewTools(api, bus), NewWhatsAppSessions(), &RAG{}, aff)
+
+	if _, err := g.HandleInbound(context.Background(), "+573000000009", "mi número de afiliado es 2"); err != nil {
+		t.Fatal(err)
+	}
+	var fuente string
+	sawCity := false
+	cap.mu.Lock()
+	for _, ev := range cap.events {
+		if ev.Type != FEATURE_UPDATED {
+			continue
+		}
+		if ev.Payload["key"] == "fuente_perfil" {
+			fuente, _ = ev.Payload["value"].(string)
+		}
+		if ev.Payload["key"] == "city" && ev.Payload["value"] == "SOACHA" {
+			sawCity = true // ciudad del afiliado serie 2, no de la estimación
+		}
+	}
+	cap.mu.Unlock()
+	if fuente != "maestro de afiliados (serie confirmada)" {
+		t.Errorf("fuente_perfil final = %q", fuente)
+	}
+	if !sawCity {
+		t.Error("el perfil confirmado (serie 2, SOACHA) no se precargó")
+	}
+}
+
 // TestGuardianLowConfidenceNotPersisted: entidades dudosas no se guardan.
 func TestGuardianLowConfidenceNotPersisted(t *testing.T) {
 	srv := guardianAPI(t)

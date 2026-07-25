@@ -70,6 +70,20 @@
     .btn-danger { background: #fee2e2; color: #b91c1c; padding: 9px 14px; }
     .btn-theme { font-size: 15px; padding: 7px 10px; }
 
+    /* --- pestañas de conversaciones simultáneas --- */
+    .conv-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .conv-tab { position: relative; border: 1px solid var(--line); background: var(--ev-bg);
+      color: var(--txt); border-radius: 10px; padding: 6px 12px; cursor: pointer; text-align: left;
+      font-family: inherit; transition: all .2s; }
+    .conv-tab:hover { border-color: var(--blue); }
+    .conv-tab.active { background: var(--blue-soft); border-color: var(--blue); }
+    .conv-tab .ct-phone { display: block; font-size: 12px; font-weight: 700; }
+    .conv-tab .ct-meta { display: block; font-size: 10px; color: var(--muted); letter-spacing: .02em; }
+    .conv-tab .ct-badge { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px;
+      border-radius: 999px; background: #16a34a; color: #fff; font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; padding: 0 4px;
+      animation: pulse 1.6s infinite; }
+
     /* --- stepper de estados del lead (Guardian) --- */
     .lead-steps { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 10px; }
     .lead-step { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 4px 9px;
@@ -176,6 +190,8 @@
           <button class="btn-primary" id="waStart">Iniciar contacto</button>
           <button class="btn-danger" id="waEnd" disabled>Finalizar</button>
         </div>
+
+        <div class="conv-tabs" id="convTabs" style="display:none"></div>
 
         <div class="lead-steps" id="leadSteps" style="display:none">
           <span class="lead-step" data-st="AFFILIATION_CHECK">Identificación</span>

@@ -1,28 +1,20 @@
-// Chat WhatsApp — hilo en vivo + panel de eventos en tiempo real + dark mode.
-// Reusa el pipeline del backend (channel="whatsapp") y el stream /ws. Aditivo:
-// no toca el demo de voz ni Mission Control.
+// Chat WhatsApp — multi-conversación en vivo + panel de eventos + dark mode.
+// El asesor autónomo atiende N clientes en paralelo (el backend ya los aísla
+// por call_id); esta vista los presenta como pestañas y guarda el historial de
+// eventos POR conversación, así cambiar de cliente re-renderiza su hilo sin
+// perder nada. Fuente de verdad única: el stream /ws.
 const $ = (id) => document.getElementById(id);
 
-let convID = null;
-let phone = "";
+// convs: convID -> {phone, events[], unread, lastAt, state}
+const convs = new Map();
+let activeID = null;   // conversación mostrada en pantalla
 let typingEl = null;
+let replaying = false; // durante el replay no animamos "escribiendo…"
 
-// preBuffer guarda los eventos que llegan por /ws ANTES de que el frontend
-// conozca el convID (el backend publica CALL_STARTED + saludo de forma síncrona,
-// antes de responder /api/chat/start). Sin esto el saludo se pierde y el hilo
-// arranca vacío. Al fijar convID se re-reproducen (replay) los buffered de esa
-// conversación, en orden. Fuente de verdad única = /ws, sin carreras.
-let preBuffer = [];
-const PREBUFFER_MAX = 400;
-
-// liveMonitor: con la UI ociosa, engancharse automáticamente a cualquier
-// conversación de WhatsApp que arranque (CALL_STARTED channel=whatsapp), venga
-// del webhook REAL de Kapso (el cliente escribe primero) o de la simulación. Así
-// lo que pasa en WhatsApp real se refleja en vivo en la web sin que el operador
-// tenga que "iniciar contacto" primero.
-let liveMonitor = true;
+const EVENTS_MAX = 400; // cap de historial por conversación
 
 const now = () => new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+const hhmm = (d) => new Date(d).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 
 // ---------- dark mode (persistido) ----------
 function applyTheme(dark) {
@@ -52,19 +44,66 @@ async function loadCaps() {
   } catch (_) { /* offline: queda en modo demo */ }
 }
 
-// Re-enganche tras recargar: si hay una sesión WhatsApp viva, adoptarla para
-// que el hilo siga en vivo (los mensajes siguientes aparecen por /ws).
+// Re-enganche tras recargar: repuebla las pestañas con las sesiones vivas y
+// abre la más reciente. Los mensajes siguientes llegan por /ws.
 async function reattachLive() {
   try {
     const r = await fetch("/api/whatsapp/debug");
     if (!r.ok) return;
     const d = await r.json();
-    const s = (d.live_sessions || []).sort((a, b) =>
-      new Date(b.last_activity) - new Date(a.last_activity))[0];
-    if (s && !convID) {
-      attach(s.conversation_id, s.phone, { live: true });
-    }
+    const live = (d.live_sessions || []).sort((a, b) =>
+      new Date(b.last_activity) - new Date(a.last_activity));
+    live.forEach((s) => ensureConv(s.conversation_id, s.phone, s.last_activity));
+    renderTabs();
+    if (live.length && !activeID) selectConv(live[0].conversation_id);
   } catch (_) { /* sin debug endpoint: nada */ }
+}
+
+// ---------- registro de conversaciones ----------
+function ensureConv(id, phone, at) {
+  let c = convs.get(id);
+  if (!c) {
+    c = { phone: phone || "", events: [], unread: 0, lastAt: at || Date.now(), state: "" };
+    convs.set(id, c);
+  }
+  if (phone && !c.phone) c.phone = phone;
+  return c;
+}
+
+function renderTabs() {
+  const wrap = $("convTabs");
+  wrap.innerHTML = "";
+  wrap.style.display = convs.size ? "" : "none";
+  [...convs.entries()]
+    .sort((a, b) => new Date(b[1].lastAt) - new Date(a[1].lastAt))
+    .forEach(([id, c]) => {
+      const el = document.createElement("button");
+      el.className = "conv-tab" + (id === activeID ? " active" : "");
+      el.innerHTML = `<span class="ct-phone">${escapeHTML(c.phone || id.slice(0, 8))}</span>
+        <span class="ct-meta">${c.state ? escapeHTML(c.state) : "en curso"}</span>
+        ${c.unread ? `<span class="ct-badge">${c.unread}</span>` : ""}`;
+      el.addEventListener("click", () => selectConv(id));
+      wrap.appendChild(el);
+    });
+}
+
+// selectConv cambia la conversación visible y re-renderiza su hilo completo
+// desde el historial guardado (nada se pierde al alternar entre clientes).
+function selectConv(id) {
+  const c = convs.get(id);
+  if (!c) return;
+  activeID = id;
+  c.unread = 0;
+  clearThread();
+  clearFeed();
+  resetLeadState();
+  activateUI();
+  $("waPhone").value = c.phone || "";
+  replaying = true;
+  c.events.forEach(handleEvent);
+  replaying = false;
+  removeTyping();
+  renderTabs();
 }
 
 // ---------- render de burbujas ----------
@@ -79,18 +118,19 @@ function escapeHTML(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function addBubble(role, text) {
+function addBubble(role, text, at) {
   removeTyping();
   const t = $("waThread");
   const b = document.createElement("div");
   b.className = "bubble " + (role === "agent" ? "agent" : "user");
   const who = role === "agent" ? "Guardian AI 🛡️" : "Cliente";
-  b.innerHTML = `<span class="who">${who}</span>${escapeHTML(text)}<span class="t">${now()}</span>`;
+  b.innerHTML = `<span class="who">${who}</span>${escapeHTML(text)}<span class="t">${at ? hhmm(at) : now()}</span>`;
   t.appendChild(b);
   t.scrollTop = t.scrollHeight;
 }
 
 function showTyping() {
+  if (replaying) return;
   removeTyping();
   const t = $("waThread");
   if (t.classList.contains("empty")) return;
@@ -120,7 +160,7 @@ const EVENT_META = {
   SUMMARY_GENERATED:        { icon: "📝", cls: "blue",   label: "Resumen generado" },
   CALL_ENDED:               { icon: "🏁", cls: "red",    label: "Conversación finalizada", detail: p => p.reason },
   ERROR_OCCURRED:           { icon: "⚠️", cls: "red",    label: "Error recuperable",    detail: p => (p.message || "").slice(0, 90) },
-  // STATE_CHANGED se omite del feed (ruido); se usa para el indicador "pensando".
+  // STATE_CHANGED se omite del feed (ruido); alimenta el stepper del lead.
 };
 function fmtVal(v) { return typeof v === "boolean" ? (v ? "sí" : "no") : String(v); }
 function pct(c) { return c ? Math.round(c * 100) + "%" : "—"; }
@@ -143,24 +183,12 @@ function addEvent(ev) {
   el.innerHTML = `<span class="ev-icon">${meta.icon}</span>
     <span class="ev-body"><span class="ev-label">${meta.label}</span>
     ${d ? `<div class="ev-detail">${escapeHTML(d)}</div>` : ""}</span>
-    <span class="ev-time">${now()}</span>`;
+    <span class="ev-time">${ev.timestamp ? hhmm(ev.timestamp) : now()}</span>`;
   f.appendChild(el);
   while (f.children.length > 120) f.firstChild.remove();
   f.scrollTop = f.scrollHeight;
 }
 
-// ---------- WebSocket: única fuente de verdad ----------
-function setWS(on, txt) {
-  $("wsDot").classList.toggle("on", on);
-  $("wsDot").classList.toggle("pulse", on);
-  $("wsState").textContent = txt;
-}
-
-// handleEvent renderiza un evento ya confirmado como perteneciente a convID.
-// El indicador "escribiendo…" se ata al pensar REAL del motor: aparece cuando
-// entra un mensaje / el motor arranca, y se retira al llegar la burbuja del
-// agente, al finalizar o ante un error. Así la UI se siente reactiva durante la
-// latencia del LLM en vez de parpadear.
 // ---------- Guardian: stepper de estados + perfil en vivo ----------
 const LEAD_ORDER = ["AFFILIATION_CHECK", "PROFILE_DISCOVERY", "FINANCIAL_QUALIFICATION",
   "PROJECT_MATCHING", "READY_FOR_ADVISOR", "NURTURING"];
@@ -212,6 +240,7 @@ function showLeadReady(p) {
   t.scrollTop = t.scrollHeight;
 }
 
+// handleEvent renderiza un evento de la conversación ACTIVA (en vivo o replay).
 function handleEvent(ev) {
   addEvent(ev);
   const p = ev.payload || {};
@@ -224,10 +253,10 @@ function handleEvent(ev) {
       showTyping();
       break;
     case "TRANSCRIPT_UPDATED":
-      if (ev.payload && ev.payload.is_final) {
-        if (ev.payload.role === "agent") removeTyping();
-        addBubble(ev.payload.role, ev.payload.text);
-        if (ev.payload.role === "user") showTyping(); // el agente va a responder
+      if (p.is_final) {
+        if (p.role === "agent") removeTyping();
+        addBubble(p.role, p.text, ev.timestamp);
+        if (p.role === "user") showTyping(); // el agente va a responder
       }
       break;
     case "CALL_ENDED":
@@ -237,37 +266,17 @@ function handleEvent(ev) {
   }
 }
 
-// drainPreBuffer re-reproduce, en orden, los eventos de esta conversación que
-// llegaron antes de conocer convID (p.ej. el saludo de apertura).
-function drainPreBuffer() {
-  const buffered = preBuffer.filter((e) => e.call_id === convID);
-  preBuffer = [];
-  buffered.forEach(handleEvent);
+// ---------- WebSocket: única fuente de verdad ----------
+function setWS(on, txt) {
+  $("wsDot").classList.toggle("on", on);
+  $("wsDot").classList.toggle("pulse", on);
+  $("wsState").textContent = txt;
 }
 
-// activateUI habilita compose/finalizar y bloquea "iniciar" mientras hay una
-// conversación enganchada.
-function activateUI() {
-  $("waMsg").disabled = false;
-  $("waSend").disabled = false;
-  $("waEnd").disabled = false;
-  $("waStart").disabled = true;
-}
-
-// attach conecta la UI a una conversación por su call_id. Idempotente: lo usan
-// tanto el contacto saliente manual como el auto-enganche a WhatsApp real. Si ya
-// hay otra conversación activa, ignora (panel de una conversación a la vez).
-function attach(callID, phoneNum, opts = {}) {
-  if (convID === callID) return;            // ya enganchados a esta
-  if (convID && convID !== callID) return;  // ocupados con otra
-  convID = callID;
-  if (phoneNum) { phone = phoneNum; $("waPhone").value = phoneNum; }
-  clearThread();
-  clearFeed();
-  resetLeadState();
-  activateUI();
-  drainPreBuffer(); // re-reproduce lo que llegó antes de engancharnos
-  if (opts.live) addBubble("agent", `— Conversación en vivo con ${phone || "cliente"} —`);
+// leadStateOf extrae el estado comercial para mostrarlo en la pestaña.
+function leadStateOf(ev) {
+  const to = (ev.payload || {}).to;
+  return LEAD_ORDER.includes(to) || to === "COMPLETED" ? to : "";
 }
 
 function connectWS() {
@@ -277,32 +286,67 @@ function connectWS() {
   ws.onmessage = (m) => {
     let ev;
     try { ev = JSON.parse(m.data); } catch (_) { return; }
-    // Auto-enganche: UI ociosa + arranca una conversación de WhatsApp = adoptarla
-    // en vivo (webhook real de Kapso o simulación). Este es el puente que hace
-    // que lo de WhatsApp real se vea en la web sin "iniciar contacto".
-    if (!convID && liveMonitor && ev.type === "CALL_STARTED" &&
-        ev.payload && ev.payload.channel === "whatsapp") {
-      attach(ev.call_id, ev.payload.from || "", { live: true });
-    }
-    if (!convID) {
-      // Aún no sabemos a qué conversación pertenecemos: bufferizar por si es la
-      // nuestra (se filtra por call_id al fijar convID).
-      preBuffer.push(ev);
-      if (preBuffer.length > PREBUFFER_MAX) preBuffer.shift();
+    if (!ev.call_id) return;
+
+    const p = ev.payload || {};
+    // Solo seguimos conversaciones de WhatsApp: la primera señal es CALL_STARTED
+    // con channel=whatsapp; los eventos previos a conocerla se guardan igual
+    // (el backend publica el saludo antes de responder /api/chat/start).
+    const known = convs.has(ev.call_id);
+    if (!known && !(ev.type === "CALL_STARTED" && p.channel === "whatsapp")) {
+      // evento de una conversación que aún no identificamos como WhatsApp:
+      // guardamos en cuarentena por si CALL_STARTED llega después.
+      pending.set(ev.call_id, [...(pending.get(ev.call_id) || []), ev].slice(-EVENTS_MAX));
       return;
     }
-    if (ev.call_id !== convID) return;
-    handleEvent(ev);
+
+    const c = ensureConv(ev.call_id, p.from || p.to || "", ev.timestamp);
+    if (!known && pending.has(ev.call_id)) {
+      c.events.push(...pending.get(ev.call_id)); // rescata lo que llegó antes
+      pending.delete(ev.call_id);
+    }
+    c.events.push(ev);
+    if (c.events.length > EVENTS_MAX) c.events.shift();
+    c.lastAt = ev.timestamp || Date.now();
+    const st = leadStateOf(ev);
+    if (st) c.state = st;
+    if (!c.phone && p.to) c.phone = p.to;
+
+    // Auto-selección: la primera conversación WhatsApp que aparezca se abre sola
+    // (webhook real de Kapso o simulación). Las siguientes esperan en pestañas.
+    if (!activeID) { selectConv(ev.call_id); return; }
+
+    if (ev.call_id === activeID) {
+      handleEvent(ev);
+      renderTabsThrottled();
+    } else {
+      if (ev.type === "TRANSCRIPT_UPDATED" && p.is_final) c.unread++;
+      renderTabsThrottled();
+    }
   };
   ws.onclose = () => { setWS(false, "reconectando…"); setTimeout(connectWS, 1500); };
   ws.onerror = () => setWS(false, "reconectando…");
 }
 
+// eventos de conversaciones aún no identificadas como WhatsApp
+const pending = new Map();
+
+let tabsTimer = null;
+function renderTabsThrottled() {
+  if (tabsTimer) return;
+  tabsTimer = setTimeout(() => { tabsTimer = null; renderTabs(); }, 250);
+}
+
 // ---------- acciones ----------
+function activateUI() {
+  $("waMsg").disabled = false;
+  $("waSend").disabled = false;
+  $("waEnd").disabled = false;
+}
+
 async function startContact() {
   const to = $("waPhone").value.trim();
   if (!to) { alert("Ingresa el teléfono del cliente."); return; }
-  phone = to;
   $("waStart").disabled = true;
   let d;
   try {
@@ -316,38 +360,44 @@ async function startContact() {
   } catch (_) {
     alert("No se pudo iniciar (¿motor configurado?)."); $("waStart").disabled = false; return;
   }
-  attach(d.conversation_id, to); // no-op si el auto-enganche ya adoptó esta conv
-  if ($("waThread").children.length === 0) showTyping(); // saludo aún en camino por WS
+  ensureConv(d.conversation_id, to, Date.now());
+  selectConv(d.conversation_id);
+  if ($("waThread").children.length === 0) showTyping(); // saludo en camino por WS
+  $("waStart").disabled = false; // se puede abrir otra conversación en paralelo
   $("waMsg").focus();
 }
 
 async function sendInbound() {
   const text = $("waMsg").value.trim();
-  if (!text || !convID) return;
+  const c = convs.get(activeID);
+  if (!text || !c) return;
   $("waMsg").value = "";
   showTyping();
   const r = await fetch("/api/whatsapp/simulate-inbound", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ from: phone, text }),
+    body: JSON.stringify({ from: c.phone, text }),
   });
   if (!r.ok) { removeTyping(); alert("Fallo al enviar el mensaje entrante."); }
   // Las burbujas (cliente y respuesta del agente) llegan por WebSocket.
 }
 
 async function endContact() {
-  if (!convID) return;
-  await fetch(`/api/calls/${convID}/end`, { method: "POST" });
+  if (!activeID) return;
+  const id = activeID;
+  await fetch(`/api/calls/${id}/end`, { method: "POST" });
   removeTyping();
   addBubble("agent", "— Conversación finalizada. Disponible en el Pipeline. —");
+  convs.delete(id);
+  activeID = null;
   $("waMsg").disabled = true;
   $("waSend").disabled = true;
   $("waEnd").disabled = true;
   $("waStart").disabled = false;
   $("evLive").style.display = "none";
-  convID = null;
-  preBuffer = []; // evita fugas de eventos hacia la próxima conversación
-  // el stepper/perfil quedan visibles hasta el próximo attach (lectura post-mortem)
+  // abre la siguiente conversación viva, si queda alguna
+  const next = [...convs.keys()][0];
+  if (next) selectConv(next); else renderTabs();
 }
 
 $("waStart").addEventListener("click", startContact);

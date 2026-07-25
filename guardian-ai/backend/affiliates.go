@@ -37,7 +37,8 @@ type Affiliate struct {
 }
 
 type Affiliates struct {
-	rows []Affiliate
+	rows    []Affiliate
+	bySerie map[string]int // SERIE -> índice en rows (lookup REAL)
 }
 
 // NewAffiliates loads the sample CSV (AFFILIATES_CSV or default). Missing file
@@ -71,7 +72,9 @@ func NewAffiliates() *Affiliates {
 		return ""
 	}
 	si := func(row []string, key string) bool { return strings.EqualFold(get(row, key), "SI") }
+	a.bySerie = make(map[string]int, len(recs)-1)
 	for _, row := range recs[1:] {
+		a.bySerie[get(row, "SERIE")] = len(a.rows)
 		a.rows = append(a.rows, Affiliate{
 			Serie:         get(row, "SERIE"),
 			Gender:        get(row, "GENERO"),
@@ -94,7 +97,8 @@ func NewAffiliates() *Affiliates {
 func (a *Affiliates) Enabled() bool { return a != nil && len(a.rows) > 0 }
 
 // ForPhone returns the affiliate deterministically bound to a phone for the
-// demo (same phone → same affiliate).
+// demo (same phone → same affiliate). Vinculación SIMULADA — usada solo como
+// estimación inicial; BySerie la reemplaza cuando el cliente confirma su serie.
 func (a *Affiliates) ForPhone(phone string) (Affiliate, bool) {
 	if !a.Enabled() {
 		return Affiliate{}, false
@@ -102,6 +106,20 @@ func (a *Affiliates) ForPhone(phone string) (Affiliate, bool) {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(canonPhone(phone)))
 	return a.rows[int(h.Sum32())%len(a.rows)], true
+}
+
+// BySerie is the REAL master lookup: the customer states their affiliate
+// number in the conversation and we fetch exactly that record.
+func (a *Affiliates) BySerie(serie string) (Affiliate, bool) {
+	if !a.Enabled() {
+		return Affiliate{}, false
+	}
+	// tolera "serie 12345", "No. 12345", etc.: solo dígitos
+	digits := strings.TrimPrefix(canonPhone(serie), "+")
+	if i, ok := a.bySerie[digits]; ok {
+		return a.rows[i], true
+	}
+	return Affiliate{}, false
 }
 
 // smlv is the Colombian monthly minimum wage used to estimate income from the

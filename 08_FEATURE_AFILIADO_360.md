@@ -71,9 +71,19 @@ Reglas 360 sembradas (weights modestos — complementan la conversación):
 - **Sin target de compra de seguros**: las marcas son consumo de OTROS
   servicios. La relación consumo→seguro es **afinidad heurística con evidencia
   de gradientes reales**, no un modelo de propensión validado.
-- **Vinculación teléfono→afiliado SIMULADA**: la base es anónima (SERIE, sin
-  teléfono). La demo asigna un afiliado determinístico por hash del teléfono.
-  En producción, la vinculación vendría del maestro de afiliados.
+- **Dos vías de vinculación, declaradas en la variable `fuente_perfil`**:
+  1. Al abrir: **estimación demo** (hash determinístico del teléfono — la base
+     es anónima, sin teléfonos). `fuente_perfil = "estimación demo (hash de
+     teléfono)"`.
+  2. Cuando el cliente comparte su **número de afiliado** en la conversación:
+     lookup **REAL** por SERIE contra el maestro (`BySerie`), que reemplaza la
+     estimación. `fuente_perfil = "maestro de afiliados (serie confirmada)"`.
+  En producción la vía 1 desaparece (el maestro real vincula por
+  teléfono/cédula).
+- **Semántica del pipeline**: la variable `estado_pipeline` (`nuevo|conocido`)
+  indica si el usuario existía en la **Protege API** (pipeline de ventas), NO
+  su afiliación a Colsubsidio. Ser nuevo en el pipeline y a la vez afiliado
+  conocido del maestro es el caso de negocio normal.
 - Segmentos ofuscados (letras griegas) se guardan como categorías sin
   interpretarse.
 - 4 de las 5 marcas no tienen señal en la muestra entregada; solo droguería

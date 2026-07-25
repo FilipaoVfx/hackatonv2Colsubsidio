@@ -36,6 +36,22 @@ func TestAffiliatesLoadAndForPhone(t *testing.T) {
 	}
 }
 
+func TestAffiliatesBySerie(t *testing.T) {
+	t.Setenv("AFFILIATES_CSV", writeSampleCSV(t))
+	a := NewAffiliates()
+	af, ok := a.BySerie("2")
+	if !ok || af.City != "SOACHA" || !af.Hotels {
+		t.Fatalf("BySerie(2) = %+v ok=%v", af, ok)
+	}
+	// tolera formato humano
+	if af2, ok := a.BySerie("serie No. 2"); !ok || af2.Serie != af.Serie {
+		t.Errorf("BySerie con texto = %+v ok=%v", af2, ok)
+	}
+	if _, ok := a.BySerie("99999"); ok {
+		t.Error("serie inexistente no debe resolver")
+	}
+}
+
 func TestAffiliateVariablesCanonical(t *testing.T) {
 	af := Affiliate{Serie: "9", Gender: "F", AgeRange: "20 a 35 años",
 		SalaryRange: "Entre 1 y 1.5 SMLV", City: "BOGOTA D.C.", Drugstore: true}
