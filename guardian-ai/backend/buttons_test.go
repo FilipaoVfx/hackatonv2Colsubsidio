@@ -99,7 +99,7 @@ func TestProcessKapsoWebhookButtonTap(t *testing.T) {
 		"interactive":{"type":"button_reply","button_reply":{"id":"btn_1","title":"perro"}}},
 		"conversation":{"id":"c1","phone_number":"57300"}}`
 	var gotFrom, gotText string
-	status, debug := processKapsoWebhook([]byte(body), "whatsapp.message.received", "", "",
+	status, debug := processKapsoWebhook([]byte(body), "whatsapp.message.received", "", "", nil,
 		func(from, text string) { gotFrom, gotText = from, text })
 	if status != 200 {
 		t.Errorf("status = %d, want 200", status)
