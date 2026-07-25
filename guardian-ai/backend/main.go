@@ -413,10 +413,13 @@ func main() {
 	// so we ack immediately and process the conversation turn asynchronously
 	// (events stream to the UI over /ws; replies go out via the MESSAGE_SENT
 	// delivery consumer).
+	// Reentregas de Kapso (no llegó el 200 a tiempo) no deben correr el turno
+	// dos veces: se descartan por message id dentro de esta ventana.
+	webhookDedupe := newInboundDedupe(15 * time.Minute)
 	app.Post("/api/whatsapp/webhook", func(c *fiber.Ctx) error {
 		body := c.Body()
 		status, debug := processKapsoWebhook(body, c.Get("X-Webhook-Event"),
-			c.Get("X-Webhook-Signature"), os.Getenv("KAPSO_WEBHOOK_SECRET"),
+			c.Get("X-Webhook-Signature"), os.Getenv("KAPSO_WEBHOOK_SECRET"), webhookDedupe,
 			func(from, text string) {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

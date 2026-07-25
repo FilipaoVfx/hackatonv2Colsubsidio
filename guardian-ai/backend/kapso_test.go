@@ -148,14 +148,14 @@ func sign(t *testing.T, body []byte, secret string) string {
 func TestProcessKapsoWebhookHappyPath(t *testing.T) {
 	var got []string
 	status, debug := processKapsoWebhook([]byte(kapsoReceivedBody),
-		"whatsapp.message.received", "", "unused-secret-is-ignored-when-empty",
+		"whatsapp.message.received", "", "unused-secret-is-ignored-when-empty", nil,
 		func(from, text string) { got = append(got, from+"|"+text) })
 	// nota: con secret configurado se exige firma; aquí va sin secret:
 	if status != 401 { // secret set -> firma requerida
 		t.Fatalf("status = %d, want 401 (firma requerida)", status)
 	}
 	status, debug = processKapsoWebhook([]byte(kapsoReceivedBody),
-		"whatsapp.message.received", "", "",
+		"whatsapp.message.received", "", "", nil,
 		func(from, text string) { got = append(got, from+"|"+text) })
 	if status != 200 {
 		t.Fatalf("status = %d, want 200 (%s)", status, debug)
@@ -172,12 +172,12 @@ func TestProcessKapsoWebhookSignatureEnforced(t *testing.T) {
 	process := func(from, text string) { calls++ }
 
 	// firma válida -> procesa
-	status, _ := processKapsoWebhook(body, "whatsapp.message.received", sign(t, body, secret), secret, process)
+	status, _ := processKapsoWebhook(body, "whatsapp.message.received", sign(t, body, secret), secret, nil, process)
 	if status != 200 || calls != 1 {
 		t.Errorf("valid sig: status=%d calls=%d", status, calls)
 	}
 	// firma inválida -> 401 y NO procesa
-	status, _ = processKapsoWebhook(body, "whatsapp.message.received", "deadbeef", secret, process)
+	status, _ = processKapsoWebhook(body, "whatsapp.message.received", "deadbeef", secret, nil, process)
 	if status != 401 || calls != 1 {
 		t.Errorf("bad sig: status=%d calls=%d (want 401, still 1)", status, calls)
 	}
@@ -186,7 +186,7 @@ func TestProcessKapsoWebhookSignatureEnforced(t *testing.T) {
 func TestProcessKapsoWebhookEventFilter(t *testing.T) {
 	calls := 0
 	status, debug := processKapsoWebhook([]byte(kapsoReceivedBody),
-		"whatsapp.message.delivered", "", "", func(from, text string) { calls++ })
+		"whatsapp.message.delivered", "", "", nil, func(from, text string) { calls++ })
 	if status != 200 || calls != 0 {
 		t.Errorf("status=%d calls=%d, want ack 200 sin procesar (%s)", status, calls, debug)
 	}
@@ -197,16 +197,16 @@ func TestProcessKapsoWebhookSkipsNonTextAndMalformed(t *testing.T) {
 	process := func(from, text string) { calls++ }
 	// imagen: ack sin procesar
 	img := `{"message":{"id":"w1","type":"image","from":"57300"},"conversation":{"phone_number":"57300"}}`
-	if status, _ := processKapsoWebhook([]byte(img), "whatsapp.message.received", "", "", process); status != 200 || calls != 0 {
+	if status, _ := processKapsoWebhook([]byte(img), "whatsapp.message.received", "", "", nil, process); status != 200 || calls != 0 {
 		t.Errorf("image: status=%d calls=%d", status, calls)
 	}
 	// basura: ack 200 sin crash
-	if status, _ := processKapsoWebhook([]byte("not json"), "whatsapp.message.received", "", "", process); status != 200 || calls != 0 {
+	if status, _ := processKapsoWebhook([]byte("not json"), "whatsapp.message.received", "", "", nil, process); status != 200 || calls != 0 {
 		t.Errorf("garbage: status=%d calls=%d", status, calls)
 	}
 	// batch de 2: procesa ambos
 	batch := `{"batch":true,"data":[` + kapsoReceivedBody + `,` + kapsoReceivedBody + `]}`
-	if status, debug := processKapsoWebhook([]byte(batch), "whatsapp.message.received", "", "", process); status != 200 || calls != 2 {
+	if status, debug := processKapsoWebhook([]byte(batch), "whatsapp.message.received", "", "", nil, process); status != 200 || calls != 2 {
 		t.Errorf("batch: status=%d calls=%d (%s)", status, calls, debug)
 	}
 }

@@ -27,6 +27,12 @@ type GuardianEngine struct {
 	mu    sync.Mutex
 	convs map[string]*guardianConv
 
+	// turns serializa los turnos de un MISMO cliente. WhatsApp entrega en
+	// ráfaga y el webhook lanza una goroutine por mensaje: sin esta llave por
+	// teléfono dos turnos comparten el mismo guardianConv (historial, estado)
+	// y además pueden abrir dos conversaciones para la misma persona.
+	turns keyedMutex
+
 	// per-process catalog cache (products/rules/questions change rarely)
 	catOnce  sync.Once
 	products []ProtegeProduct
@@ -40,6 +46,7 @@ type guardianConv struct {
 	history   []oaMessage
 	questions []ProtegeQuestion
 	recs      []string // rendered recommendations shown in MATCHING
+	recTries  int      // intentos de get_recommendations en MATCHING
 }
 
 func NewGuardianEngine(bus *EventBus, api *ColsubsidioClient, llm GuardianLLM, tools *Tools, sessions *WhatsAppSessions, rag *RAG, affiliates *Affiliates) *GuardianEngine {
@@ -60,6 +67,8 @@ const guardianFallbackMsg = "Estoy validando tu información, dame un momento po
 // static opener is sent (24h-window template rule: the FIRST outbound message
 // is fixed, not LLM free-form).
 func (e *GuardianEngine) StartContact(ctx context.Context, phone string) (string, error) {
+	unlock := e.turns.lock(canonPhone(phone))
+	defer unlock()
 	return e.start(ctx, phone, true)
 }
 
@@ -100,7 +109,15 @@ func (e *GuardianEngine) start(ctx context.Context, phone string, greet bool) (s
 	})
 	e.transitionRaw(callID, StateAffiliation, StateProfile, "identidad resuelta por la API")
 
-	questions, _ := e.fetchQuestions(ctx, callID)
+	questions, qErr := e.fetchQuestions(ctx, callID)
+	if qErr != nil || len(questions) == 0 {
+		// El descubrimiento depende de este catálogo: se declara el fallo y el
+		// turno lo reintenta (nunca se interpreta como "nada que preguntar").
+		e.bus.Publish(callID, ERROR_OCCURRED, "guardian_engine", map[string]interface{}{
+			"source": "colsubsidio_api", "code": "questions_unavailable",
+			"message": "catálogo de preguntas no disponible al abrir la conversación", "recoverable": true,
+		})
+	}
 	e.mu.Lock()
 	e.convs[callID] = &guardianConv{userID: user.ID, phone: phone, state: StateProfile, questions: questions}
 	e.mu.Unlock()
@@ -127,6 +144,11 @@ func (e *GuardianEngine) start(ctx context.Context, phone string, greet bool) (s
 // turn. A message from an unknown phone opens the conversation first (the
 // customer wrote first: their text IS the first turn, no canned greeting).
 func (e *GuardianEngine) HandleInbound(ctx context.Context, phone, text string) (string, error) {
+	// Un turno a la vez por cliente: resolver-o-abrir la sesión y ejecutar el
+	// turno son atómicos frente a otro mensaje del mismo teléfono.
+	unlock := e.turns.lock(canonPhone(phone))
+	defer unlock()
+
 	convID, isNew := e.sessions.Resolve(phone)
 	if isNew {
 		id, err := e.start(ctx, phone, false)
@@ -157,6 +179,14 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	runTool := func(name string, args map[string]interface{}) ToolResult {
 		toolCalls = append(toolCalls, name)
 		return e.tools.Run(ctx, convID, name, args)
+	}
+
+	// 0. El catálogo de preguntas pudo fallar al abrir (API intermitente). Sin
+	// él la etapa nunca se completa, así que se reintenta cada turno.
+	if len(st.questions) == 0 {
+		if qs, err := e.fetchQuestions(ctx, convID); err == nil && len(qs) > 0 {
+			st.questions = qs
+		}
 	}
 
 	// 1. Strategic memory — ALWAYS rebuilt from the API (spec §6).
@@ -220,9 +250,17 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	e.applySerie(ctx, convID, st, d.Entities)
 
 	// 5. Deterministic state advancement (the LLM proposes; the engine decides).
+	// La acción se valida contra la whitelist del estado y TODO lo que sigue usa
+	// la acción validada: leer d.NextAction crudo más abajo era saltarse la
+	// whitelist que acabamos de aplicar.
 	action := d.NextAction
 	if !ActionAllowed(st.state, action) {
-		action = ActionAsk
+		action = FallbackAction(st.state)
+		e.bus.Publish(convID, ERROR_OCCURRED, "guardian_engine", map[string]interface{}{
+			"source": "guardian_engine", "code": "illegal_action",
+			"message":     fmt.Sprintf("next_action %q no permitida en %s, degradada a %q", d.NextAction, st.state, action),
+			"recoverable": true,
+		})
 	}
 	reply := strings.TrimSpace(d.AssistantMessage)
 	if reply == "" {
@@ -230,17 +268,23 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	}
 	e.sendAgent(convID, phone, reply)
 
-	wantsAdvisor := d.NextAction == ActionHandoff || isAcceptIntent(d.Intent)
+	// El intent es un enum cerrado del esquema; solo escala si la etapa admite
+	// handoff (hoy todas menos las terminales).
+	wantsAdvisor := action == ActionHandoff ||
+		(isAcceptIntent(d.Intent) && ActionAllowed(st.state, ActionHandoff))
 	switch {
 	case action == ActionClose:
 		e.finishNurturing(ctx, convID, phone, "el cliente cerró la conversación")
-	case st.state == StateMatching && wantsAdvisor:
-		e.finishReady(ctx, convID, phone, st, known, runTool)
-	case action == ActionRecommend || wantsAdvisor:
-		// Cliente pide recomendación/asesor ya: avanza por flechas LEGALES hasta
-		// matching (la propuesta de handoff fuera de matching NO salta estados,
-		// solo acelera el recorrido legal).
+	case wantsAdvisor:
+		// Pidió un humano: se camina hasta READY por flechas LEGALES, sin
+		// inventar una recomendación con un perfil a medias.
+		e.escalate(ctx, convID, phone, st, known, runTool)
+	case action == ActionRecommend:
 		e.fastForward(ctx, convID, phone, st, known, runTool)
+	case st.state == StateMatching && len(st.recs) == 0:
+		// El intento anterior de recomendar falló: se reintenta en vez de
+		// quedarse mudo en MATCHING para siempre.
+		e.enterMatching(ctx, convID, phone, st, runTool)
 	default:
 		e.maybeAdvance(ctx, convID, phone, st, known, runTool)
 	}
@@ -336,10 +380,16 @@ func (e *GuardianEngine) maybeAdvance(ctx context.Context, convID, phone string,
 }
 
 // fastForward honors an explicit customer request for a recommendation by
-// walking the LEGAL arrows to matching (no skipped states, spec §3.3).
+// walking the LEGAL arrows to matching (no skipped states, spec §3.3). Exige
+// el perfil descubierto: recomendar sobre un perfil vacío no es acelerar el
+// recorrido, es inventarse el match. Si aún falta, se sigue descubriendo.
 func (e *GuardianEngine) fastForward(ctx context.Context, convID, phone string, st *guardianConv,
 	known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) {
 
+	if st.state == StateProfile && !StageComplete(StateProfile, st.questions, known) {
+		e.maybeAdvance(ctx, convID, phone, st, known, runTool)
+		return
+	}
 	if st.state == StateProfile {
 		e.transition(convID, st, StateFinancial, "cliente pidió recomendación")
 	}
@@ -349,14 +399,45 @@ func (e *GuardianEngine) fastForward(ctx context.Context, convID, phone string, 
 	}
 }
 
+// escalate honors an explicit request for a human advisor: walks the LEGAL
+// arrows up to PROJECT_MATCHING and closes as READY_FOR_ADVISOR. No genera
+// recomendaciones: si el perfil está a medias, el asesor lo completa — mejor
+// eso que un match fabricado sobre datos que nadie confirmó.
+func (e *GuardianEngine) escalate(ctx context.Context, convID, phone string, st *guardianConv,
+	known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) {
+
+	if st.state == StateProfile {
+		e.transition(convID, st, StateFinancial, "el cliente pidió un asesor")
+	}
+	if st.state == StateFinancial {
+		e.transition(convID, st, StateMatching, "el cliente pidió un asesor")
+	}
+	if st.state != StateMatching {
+		return // etapa terminal o no escalable: nada que hacer
+	}
+	e.finishReady(ctx, convID, phone, st, known, runTool)
+}
+
+// maxRecAttempts limita los reintentos de recomendación antes de derivar el
+// lead: sin tope, un motor caído dejaba la conversación viva pero muda.
+const maxRecAttempts = 3
+
 // enterMatching asks the API for recommendations (the API decides), emits them
 // and sends a second LLM-free summary if the LLM cannot be consulted again.
+// Reintentable: el turno siguiente vuelve a entrar mientras no haya recs.
 func (e *GuardianEngine) enterMatching(ctx context.Context, convID, phone string, st *guardianConv,
 	runTool func(string, map[string]interface{}) ToolResult) {
 
+	st.recTries++
 	res := runTool("get_recommendations", map[string]interface{}{"user_id": st.userID, "limit": 3})
 	if res.Err != nil {
-		e.sendAgent(convID, phone, "Estoy generando tu recomendación, en un momento te comparto opciones.")
+		if st.recTries >= maxRecAttempts {
+			e.sendAgent(convID, phone, "No logro generar tu recomendación en este momento. "+
+				"Un asesor de Colsubsidio revisará tu caso y te contactará 🙏")
+			e.finishNurturing(ctx, convID, phone, "motor de recomendaciones no disponible")
+			return
+		}
+		e.sendAgent(convID, phone, "Estoy generando tu recomendación, dame un momento y seguimos.")
 		return
 	}
 	recs, _ := res.Data.([]interface{})
@@ -511,6 +592,45 @@ func (e *GuardianEngine) close(convID string) {
 	delete(e.convs, convID)
 	e.mu.Unlock()
 	e.sessions.Close(convID)
+}
+
+// keyedMutex is a mutex per key: concurrent work on DIFFERENT keys runs in
+// parallel, work on the same key is serialized. Las entradas se liberan cuando
+// nadie las usa, así que el mapa no crece con cada teléfono que escribe.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*keyedLock
+}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lock takes the key's lock and returns the function that releases it.
+func (k *keyedMutex) lock(key string) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = make(map[string]*keyedLock)
+	}
+	l, ok := k.m[key]
+	if !ok {
+		l = &keyedLock{}
+		k.m[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
 }
 
 // ---- pure helpers ----

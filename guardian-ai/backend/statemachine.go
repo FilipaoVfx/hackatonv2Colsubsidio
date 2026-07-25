@@ -57,12 +57,37 @@ const (
 	ActionClose     = "close"                  // el cliente quiere terminar
 )
 
+// allowedActions: pedir un asesor humano es legítimo en CUALQUIER etapa, así
+// que handoff es legal en todas (el motor sigue caminando solo flechas legales
+// para llegar al handoff; nunca salta estados). Declararlo ilegal y honrarlo
+// igual dejaba la whitelist como adorno. Y `ask` es legal en MATCHING: el
+// agente puede resolver dudas sobre la recomendación antes de cerrar.
 var allowedActions = map[LeadState][]string{
-	StateAffiliation: {ActionAsk, ActionAnswer, ActionClose},
-	StateProfile:     {ActionAsk, ActionAnswer, ActionRecommend, ActionClose},
-	StateFinancial:   {ActionAsk, ActionAnswer, ActionRecommend, ActionClose},
-	StateMatching:    {ActionAnswer, ActionHandoff, ActionClose},
-	StateNurturing:   {ActionClose},
+	StateAffiliation: {ActionAsk, ActionAnswer, ActionHandoff, ActionClose},
+	StateProfile:     {ActionAsk, ActionAnswer, ActionRecommend, ActionHandoff, ActionClose},
+	StateFinancial:   {ActionAsk, ActionAnswer, ActionRecommend, ActionHandoff, ActionClose},
+	StateMatching:    {ActionAsk, ActionAnswer, ActionHandoff, ActionClose},
+	StateNurturing:   {ActionAnswer, ActionClose},
+}
+
+// FallbackAction is the action a state degrades to when the LLM proposes one
+// outside its whitelist. Devuelve SIEMPRE una acción legal en ese estado
+// (degradar a "ask" a ciegas producía una acción prohibida en MATCHING).
+func FallbackAction(s LeadState) string {
+	for _, candidate := range []string{ActionAsk, ActionAnswer, ActionClose} {
+		if ActionAllowed(s, candidate) {
+			return candidate
+		}
+	}
+	return ActionClose
+}
+
+// guardianIntents is the CLOSED intent vocabulary of the structured output.
+// El motor decide escalamientos leyendo `intent`, así que no puede ser texto
+// libre: el esquema JSON lo restringe a esta lista.
+var guardianIntents = []string{
+	"greeting", "provide_info", "ask_info", "objection",
+	"accept", "reject", "request_advisor", "goodbye", "other",
 }
 
 // AllowedActions returns the next_action whitelist for a state (empty slice
@@ -231,6 +256,12 @@ func toStr(v interface{}) string {
 // StageComplete: the current stage has nothing left to discover.
 func StageComplete(state LeadState, questions []ProtegeQuestion, known map[string]interface{}) bool {
 	if state != StateProfile && state != StateFinancial {
+		return false
+	}
+	// Sin catálogo de preguntas no hay EVIDENCIA de etapa completa, solo
+	// ausencia de datos: si el GET /questions falló, avanzar aquí declararía
+	// "perfil completo" con cero variables descubiertas.
+	if len(questions) == 0 {
 		return false
 	}
 	return len(MissingQuestions(state, questions, known)) == 0

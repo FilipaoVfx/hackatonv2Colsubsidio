@@ -361,6 +361,18 @@ PROJECT_MATCHING → READY_FOR_ADVISOR | NURTURING → COMPLETED`) emitida por
 { "source": "llm_gateway", "code": "string", "message": "string", "recoverable": true }
 ```
 
+**Códigos emitidos hoy** (`code`) — todos `recoverable: true`:
+
+| `code` | `source` | Cuándo | Efecto en el flujo |
+|---|---|---|---|
+| `llm_error` | `llm_gateway` | La llamada al LLM falla | Se envía el mensaje de respaldo; el turno se cierra sin avanzar el estado |
+| `unregistered_tool` | `tool_engine` | Se pidió una tool fuera del registro cerrado | La tool no se ejecuta |
+| `illegal_transition` | `guardian_engine` | Transición fuera de las flechas legales | Se bloquea; el estado no cambia |
+| `illegal_action` | `guardian_engine` | `next_action` del LLM fuera de la whitelist de la etapa | Se degrada a una acción **legal** del estado (`FallbackAction`) |
+| `questions_unavailable` | `colsubsidio_api` | `GET /api/v1/questions` falló o vino vacío al abrir | No se declara etapa completa; cada turno reintenta recuperar el catálogo |
+
+Ver `09_FEATURE_ROBUSTEZ_FLUJO_BOT.md` para el detalle de los dos últimos.
+
 ---
 
 ## 5. Flujo de referencia (turno completo)
