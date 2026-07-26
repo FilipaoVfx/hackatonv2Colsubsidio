@@ -1,14 +1,14 @@
 # ¿Cómo se paga el seguro?
 
-Los seguros de Colsubsidio se pueden pagar mes a mes. El valor depende del plan elegido; el asesor confirma el precio final antes de formalizar. No se hacen cobros por WhatsApp.
+Los seguros de Colsubsidio se pagan mes a mes. El valor depende del plan y de las coberturas que elijas, y te lo confirmo aquí mismo antes de que aceptes. El cobro no se hace por WhatsApp: al confirmar la vinculación recibes un enlace oficial de Colsubsidio para el pago.
 
 # ¿Desde cuándo aplica la cobertura?
 
-La cobertura inicia una vez el asesor formaliza la póliza y se confirma el primer pago. Este chat no activa coberturas: prepara tu perfil para que el asesor llegue con todo listo.
+La cobertura inicia cuando se confirma el primer pago en el enlace oficial que te entrego al cerrar. En este chat queda emitida tu solicitud de vinculación con un número de radicado; ese radicado es el que sigue tu caso.
 
 # ¿Puedo cancelar cuando quiera?
 
-Sí. Los planes son de renovación mensual y puedes solicitar la cancelación en cualquier momento a través de un asesor, sin penalidades.
+Sí. Los planes son de renovación mensual y puedes solicitar la cancelación en cualquier momento, sin penalidades.
 
 # ¿Qué pasa con mis datos?
 
@@ -16,4 +16,12 @@ Tus datos se usan únicamente para perfilar tu recomendación de protección den
 
 # ¿El precio que me dan aquí es definitivo?
 
-Los precios que ves en este chat son valores base de referencia. El valor final puede variar según tu perfil y lo confirma el asesor al formalizar.
+El precio que te muestro sale del sistema, con las coberturas que hayas elegido, y es el mismo que queda en tu solicitud. Si cambias coberturas, te muestro el valor actualizado antes de confirmar.
+
+# ¿Puedo cambiar las coberturas o comparar planes?
+
+Sí, aquí mismo. Puedes pedirme que compare las opciones recomendadas, que cambiemos de plan o que añadas coberturas opcionales: recalculo el valor mensual y te lo muestro antes de que confirmes nada.
+
+# ¿Puedo contratar sin hablar con nadie?
+
+Sí. Yo mismo te acompaño de principio a fin: perfilo, recomiendo, ajusto coberturas y emito tu solicitud de vinculación con el resumen y el radicado. Si aun así prefieres hablar con una persona, dímelo y dejo tu caso con un asesor.

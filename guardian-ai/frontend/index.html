@@ -3,73 +3,218 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Guardian AI · Mission Control</title>
-  <link rel="stylesheet" href="/style.css" />
+  <title>Guardian AI · Puesto de operación</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/guardian.css" />
+  <style>
+    /* Puesto de operación: registro · conversación · credencial del cliente */
+    .op-grid { display: grid; grid-template-columns: 270px minmax(0,1fr) 320px; gap: 14px; align-items: start; }
+    @media (max-width: 1200px) { .op-grid { grid-template-columns: 240px minmax(0,1fr); } .op-cred { grid-column: 1 / -1; } }
+    @media (max-width: 820px) { .op-grid { grid-template-columns: 1fr; } }
+
+    .console { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .console .sep { width: 1px; height: 24px; background: var(--rule); }
+    .console input.phone { width: 148px; }
+    .console label.chip { cursor: pointer; }
+    .console label.chip input { accent-color: var(--brand); margin: 0; }
+
+    /* estado (pill) — el JS asigna .pill/.pill-on/.pill-off */
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+      border-radius: 999px; background: var(--paper-2); border: 1px solid var(--rule-soft);
+      font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--ink-soft); }
+    .pill-on { color: var(--seal-ok); border-color: rgba(15,107,79,.35); background: rgba(15,107,79,.08); }
+    .pill-off { color: var(--ink-soft); }
+
+    /* registro de eventos (timeline) */
+    .timeline { list-style: none; margin: 0; padding: 0; max-height: 66vh; }
+    .timeline li { padding: 7px 0 7px 14px; border-left: 1px dashed var(--rule); position: relative; }
+    .timeline li::before { content: ""; position: absolute; left: -3px; top: 13px; width: 5px; height: 5px;
+      border-radius: 50%; background: var(--brand); }
+    .t-type { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+    .t-meta { font-size: 11px; color: var(--ink-soft); font-family: var(--mono); }
+    .t { font-size: 14px; color: var(--ink-2); margin-top: 2px; word-break: break-word; }
+
+    /* etapas de la máquina de estados */
+    .pipeline { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+    .stage { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+      padding: 4px 9px; border-radius: 999px; border: 1px solid var(--rule);
+      color: var(--ink-soft); background: var(--card); }
+    /* el JS marca .active (etapa en curso) y .done (etapa cumplida) */
+    .stage.on, .stage.active { background: var(--attention); border-color: var(--amber-ink); color: #6B5500; }
+    .stage.done { background: var(--brand-solid); border-color: var(--brand-solid); color: #fff; }
+
+    /* grabando: el JS pone .rec en el micrófono y en la llamada web */
+    .rec { border-color: var(--alert) !important; color: var(--alert) !important; }
+    .rec::before { content: "●"; margin-right: 5px; animation: rec-pulse 1.4s infinite; }
+    @keyframes rec-pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+
+    /* conversación */
+    .transcript { max-height: 46vh; padding-right: 4px; display: flex; flex-direction: column; gap: 8px; }
+    .msg { max-width: 82%; padding: 9px 12px; border-radius: 10px; font-size: 14px; line-height: 1.45;
+      border: 1px solid var(--rule-soft); }
+    .msg .who { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+      color: var(--ink-soft); margin-bottom: 3px; }
+    .msg.user { align-self: flex-start; background: var(--paper-2); }
+    .msg.agent { align-self: flex-end; background: var(--brand-wash); border-color: rgba(0,103,177,.22); }
+    .thinking { align-self: flex-end; font-size: 14px; color: var(--ink-soft); font-style: italic; padding: 4px 2px; }
+
+    .composer { display: flex; gap: 8px; margin-top: 12px; }
+    .composer input { flex: 1; }
+
+    /* credencial del cliente: el JS crea .feat con .fk — es un campo rotulado */
+    .feat { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; font-size: 14px;
+      animation: print-in .22s cubic-bezier(.2,.8,.3,1) both; }
+    .feat + .feat { border-top: 1px dotted var(--rule-soft); }
+    .fk { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); }
+    .feat span:last-child { margin-left: auto; font-weight: 600; text-align: right; }
+    .features:empty::after { content: "Sin datos confirmados todavía."; color: var(--ink-soft); font-size: 14px; }
+
+    .reco { font-size: 14px; }
+    .reco.muted { color: var(--ink-soft); }
+    .reco.on { border-top: 1px dashed var(--rule); padding-top: 10px; }
+    .rp { font-weight: 600; font-size: 14px; }
+    .rr { color: var(--ink-2); font-size: 14px; margin-top: 3px; }
+
+    .tools { font-size: 11px; }
+    .tool-row { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; font-family: var(--mono); font-size: 11px; }
+
+    /* lectura del motor: campos rotulados del documento, no tarjetas */
+    .cards { display: grid; gap: 0; }
+    .cards .card { display: flex; align-items: baseline; gap: 8px; padding: 6px 0;
+      border: 0; border-radius: 0; box-shadow: none; background: none; }
+    .cards .card + .card { border-top: 1px dotted var(--rule-soft); }
+    .cards .card::before { display: none; }
+    .cards .k { font-size: 11px; font-weight: 600; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--ink-soft); }
+    .cards .v { margin-left: auto; font-size: 14px; font-weight: 600; text-align: right; }
+    .v.risk-high { color: var(--alert); }
+    .v.risk-medium { color: var(--amber-ink); }
+    .v.risk-low { color: var(--seal-ok); }
+
+    /* costo: una línea de serie al pie del documento */
+    .metrics { display: flex; flex-wrap: wrap; gap: 6px 16px; padding-top: 10px; border-top: 1px dashed var(--rule); }
+    .metric { display: flex; align-items: baseline; gap: 6px; }
+    .metric span { font-family: var(--mono); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .metric small { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-soft); }
+
+    /* estados vacíos: el documento en blanco explica qué va a pasar */
+    #timeline:empty::after { content: "Aquí queda el registro de cada evento del sistema en cuanto empiece la conversación.";
+      display: block; color: var(--ink-soft); font-size: 14px; padding: 6px 0; }
+    #transcript:empty::after { content: "La conversación aparecerá aquí, turno por turno.";
+      display: block; color: var(--ink-soft); font-size: 14px; padding: 10px 0; }
+
+    .sec-title { font-size: 14px; font-weight: 600; color: var(--ink); margin: 16px 0 7px;
+      padding-bottom: 5px; border-bottom: 1px solid var(--rule); }
+    .sec-title:first-of-type { margin-top: 0; }
+  </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><span class="dot"></span> Guardian AI · <span class="muted">Mission Control</span></div>
-    <div class="controls">
-      <span id="wsStatus" class="pill pill-off">WS: conectando…</span>
-      <span id="stateBadge" class="pill">state: —</span>
-      <label class="pill"><input type="checkbox" id="voiceToggle" checked /> voz</label>
-      <button id="startBtn">Nueva conversación</button>
-      <button id="endBtn" class="ghost" title="Finalizar y enviar al Pipeline">⏹ Finalizar</button>
-      <button id="webCallBtn" title="Llamada de voz por navegador (Vapi WebRTC)">🎙️ Llamada web</button>
-      <input id="phoneInput" type="tel" placeholder="+57300…" class="phone" />
-      <button id="callBtn" class="ghost" title="Llamada telefónica (requiere número PSTN Twilio)">📞 Tel</button>
-      <button id="simBtn" class="ghost">Simular (mock)</button>
-      <a href="/pipeline" class="pill" style="text-decoration:none">Pipeline →</a>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">🛡️</div>
+      <div>
+        <div class="brand-name">Guardian AI</div>
+        <div class="brand-sub">Colsubsidio</div>
+      </div>
     </div>
-  </header>
-
-  <main class="grid">
-    <!-- LEFT: timeline -->
-    <section class="col col-left">
-      <h2>Timeline</h2>
-      <ol id="timeline" class="timeline"></ol>
-    </section>
-
-    <!-- CENTER: transcript + pipeline -->
-    <section class="col col-center">
-      <h2>Conversación</h2>
-      <div id="pipeline" class="pipeline"></div>
-      <div id="transcript" class="transcript"></div>
-      <div class="composer">
-        <input id="msgInput" type="text" placeholder="Escribe lo que dice el cliente… (o usa 🎤)" autocomplete="off" />
-        <button id="micBtn" title="Hablar">🎤</button>
-        <button id="sendBtn">Enviar</button>
+    <nav class="nav">
+      <a class="nav-item active" href="/">Puesto de operación</a>
+      <a class="nav-item" href="/chat">Chat WhatsApp</a>
+      <a class="nav-item" href="/pipeline">Pipeline</a>
+      <a class="nav-item" data-soon>Clientes</a>
+      <a class="nav-item" data-soon>Campañas</a>
+      <a class="nav-item" href="/studio">Configuración</a>
+    </nav>
+    <div class="advisor">
+      <div class="advisor-avatar">S</div>
+      <div>
+        <div class="advisor-role">Asesor IA</div>
+        <div class="advisor-name">Sofía</div>
+        <div class="advisor-status"><span class="dot-on"></span> En línea</div>
       </div>
-    </section>
+    </div>
+    <div class="cols-logo">
+      <div>
+        <div class="cols-name">Colsubsidio</div>
+        <div class="cols-tag">Con todo lo que te mereces</div>
+      </div>
+    </div>
+  </aside>
 
-    <!-- RIGHT: reasoning + metrics -->
-    <section class="col col-right">
-      <h2>Razonamiento IA</h2>
-      <div class="cards">
-        <div class="card"><span class="k">Narrativa</span><span id="mNarr" class="v">—</span></div>
-        <div class="card"><span class="k">Riesgo</span><span id="mRisk" class="v">—</span></div>
-        <div class="card"><span class="k">Sentimiento</span><span id="mSent" class="v">—</span></div>
-        <div class="card"><span class="k">Intención</span><span id="mIntent" class="v">—</span></div>
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <h1>Puesto de operación</h1>
+        <p class="sub">Conversación de voz en curso: el sistema conduce, tú acompañas y auditas cada decisión.</p>
+      </div>
+      <div class="head-actions">
+        <span id="wsStatus" class="pill pill-off">WS: conectando…</span>
+        <span id="stateBadge" class="pill">state: —</span>
+      </div>
+    </header>
+
+    <div class="console">
+      <button id="startBtn" class="btn-primary">Nueva conversación</button>
+      <button id="webCallBtn" class="btn-ghost" title="Llamada de voz por navegador (Vapi WebRTC)">🎙️ Llamada web</button>
+      <span class="sep"></span>
+      <input id="phoneInput" type="tel" placeholder="+57 300…" class="phone" />
+      <button id="callBtn" class="btn-ghost" title="Llamada telefónica (requiere número PSTN)">📞 Telefónica</button>
+      <span class="sep"></span>
+      <button id="simBtn" class="btn-ghost">Simular</button>
+      <label class="chip"><input type="checkbox" id="voiceToggle" checked /> Voz</label>
+      <button id="endBtn" class="btn-danger" title="Finalizar y enviar al Pipeline" disabled>Finalizar</button>
+    </div>
+
+    <section class="op-grid">
+      <div class="cred">
+        <div class="band"><span>Registro de eventos</span></div>
+        <ol id="timeline" class="timeline scroll-y" style="margin-top:10px"></ol>
       </div>
 
-      <h3>Features</h3>
-      <div id="features" class="features"></div>
+      <div class="cred">
+        <div class="band"><span>Conversación</span><span class="serie">voz · tiempo real</span></div>
+        <div id="pipeline" class="pipeline" style="margin-top:12px"></div>
+        <div id="transcript" class="transcript scroll-y"></div>
+        <div class="composer">
+          <input id="msgInput" type="text" placeholder="Escribe lo que dice el cliente… (o usa el micrófono)" autocomplete="off" />
+          <button id="micBtn" class="btn-ghost" title="Hablar">🎤</button>
+          <button id="sendBtn" class="btn-primary">Enviar</button>
+        </div>
+      </div>
 
-      <h3>Recomendación</h3>
-      <div id="reco" class="reco muted">Sin recomendación aún.</div>
+      <div class="cred op-cred">
+        <div class="band"><span>Credencial del cliente</span><span class="serie">en construcción</span></div>
 
-      <h3>Tools</h3>
-      <div id="tools" class="tools muted">—</div>
+        <div class="sec-title" style="margin-top:12px">Lectura del motor</div>
+        <div class="cards">
+          <div class="card"><span class="k">Narrativa</span><span id="mNarr" class="v">—</span></div>
+          <div class="card"><span class="k">Riesgo</span><span id="mRisk" class="v">—</span></div>
+          <div class="card"><span class="k">Sentimiento</span><span id="mSent" class="v">—</span></div>
+          <div class="card"><span class="k">Intención</span><span id="mIntent" class="v">—</span></div>
+        </div>
 
-      <h3>Métricas</h3>
-      <div class="metrics">
-        <div class="metric"><span id="mLatency">0</span><small>latencia ms</small></div>
-        <div class="metric"><span id="mTokens">0</span><small>tokens</small></div>
-        <div class="metric"><span id="mCost">$0.0000</span><small>costo</small></div>
+        <div class="sec-title">Datos confirmados</div>
+        <div id="features" class="features"></div>
+
+        <div class="sec-title">Recomendación</div>
+        <div id="reco" class="reco muted">Aún sin recomendación: el motor necesita más perfil.</div>
+
+        <div class="sec-title">Herramientas ejecutadas</div>
+        <div id="tools" class="tools muted">—</div>
+
+        <div class="sec-title">Costo de la conversación</div>
+        <div class="metrics">
+          <div class="metric"><span id="mLatency">0</span><small>latencia ms</small></div>
+          <div class="metric"><span id="mTokens">0</span><small>tokens</small></div>
+          <div class="metric"><span id="mCost">$0.0000</span><small>costo</small></div>
+        </div>
       </div>
     </section>
   </main>
-
-  <script src="/app.js"></script>
+</div>
+<script src="/app.js"></script>
 </body>
 </html>

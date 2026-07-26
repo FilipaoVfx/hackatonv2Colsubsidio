@@ -27,14 +27,33 @@ type ColsubsidioClient struct {
 }
 
 func NewColsubsidioClient() *ColsubsidioClient {
+	return newColsubsidioClientAt(
+		os.Getenv("COLSUBSIDIO_API_URL"),
+		os.Getenv("COLSUBSIDIO_API_TOKEN"), // optional; spec declares no auth
+	)
+}
+
+// newColsubsidioClientAt builds a client against an explicit base. El Playground
+// del Agent Studio lo usa para apuntar a OTRA API (el mock) sin heredar la de
+// producción del entorno.
+func newColsubsidioClientAt(base, token string) *ColsubsidioClient {
 	return &ColsubsidioClient{
-		base:  os.Getenv("COLSUBSIDIO_API_URL"),
-		token: os.Getenv("COLSUBSIDIO_API_TOKEN"), // optional; spec declares no auth
+		base:  base,
+		token: token,
 		http:  &http.Client{Timeout: 20 * time.Second},
 	}
 }
 
 func (c *ColsubsidioClient) Enabled() bool { return c.base != "" }
+
+// Base es la URL contra la que habla el cliente. El Studio la muestra para que
+// se vea a qué API está escribiendo el Playground.
+func (c *ColsubsidioClient) Base() string {
+	if c == nil {
+		return ""
+	}
+	return c.base
+}
 
 // ---- schemas (subset of the OpenAPI spec actually used) ----
 

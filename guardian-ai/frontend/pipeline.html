@@ -3,33 +3,173 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Guardian AI · Pipeline de Llamadas</title>
-  <link rel="stylesheet" href="/pipeline.css" />
+  <title>Guardian AI · Pipeline</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/guardian.css" />
+  <style>
+    /* archivo de credenciales cerradas */
+    .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table thead th { text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 600;
+      letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft);
+      border-bottom: 1px solid var(--rule); white-space: nowrap; }
+    .table tbody td { padding: 11px 10px; border-bottom: 1px dotted var(--rule-soft); vertical-align: top; }
+    .table tbody tr { cursor: pointer; transition: background .14s ease-out; }
+    .table tbody tr:hover { background: var(--brand-wash); }
+    .table tbody tr:focus-visible, .phase:focus-visible { outline: none; box-shadow: var(--ring); }
+    .table tbody tr:last-child td { border-bottom: 0; }
+    .table .serie-cell { font-family: var(--mono); font-weight: 600; font-size: 11px; }
+    .table-wrap { overflow-x: auto; }
+
+    .badge-outcome { display: inline-flex; align-items: center; border: 2px solid currentColor; border-radius: 5px;
+      padding: 1px 7px; transform: rotate(-2deg); font-size: 11px; font-weight: 600;
+      letter-spacing: .07em; text-transform: uppercase; color: var(--seal-ok); }
+    .badge-outcome.warn { color: var(--amber-ink); }
+    .badge-outcome.bad { color: var(--alert); }
+    .badge-outcome.info { color: var(--brand-deep); }
+    .e-name.neg { color: var(--alert); }
+    .e-name.neu { color: var(--ink-soft); }
+    .score-pill { font-family: var(--mono); font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .s-hi { color: var(--seal-ok); } .s-mid { color: var(--amber-ink); } .s-low { color: var(--alert); }
+
+    .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .detail-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
+    .link-btn { background: none; border: 0; color: var(--brand-deep); font-weight: 600; font-size: 14px;
+      cursor: pointer; font-family: inherit; padding: 6px 2px; border-radius: 4px; }
+    .link-btn:hover { text-decoration: underline; }
+    .pager { display: flex; gap: 8px; }
+
+    /* cabecera de la credencial archivada */
+    .call-head { display: grid; grid-template-columns: minmax(200px,1.4fr) repeat(3, minmax(110px,1fr)); gap: 14px 18px; align-items: start; }
+    @media (max-width: 900px) { .call-head { grid-template-columns: 1fr 1fr; } }
+    .ch-customer { display: flex; gap: 11px; align-items: center; }
+    .avatar { width: 42px; height: 42px; border-radius: 8px; background: var(--brand); color: #fff;
+      display: grid; place-items: center; font-weight: 600; font-size: 16px; box-shadow: inset 0 -3px 0 rgba(0,0,0,.18); }
+    .ch-name { font-size: 16px; font-weight: 600; }
+    .ch-phone { font-size: 11px; color: var(--ink-soft); font-family: var(--mono); display: flex; gap: 6px; align-items: center; }
+    .badge-new { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--brand-deep); background: var(--brand-wash);
+      border: 1px solid rgba(0,103,177,.3); border-radius: 4px; padding: 1px 5px; }
+    .ch-field { display: flex; flex-direction: column; gap: 2px; }
+    .ch-field .k { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); }
+    .ch-field .v { font-size: 14px; font-weight: 600; }
+
+    /* fases del documento */
+    .phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+    .phase { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 9px 11px; cursor: pointer;
+      background: var(--card); transition: border-color .16s ease-out, background .16s ease-out; }
+    .phase:hover { border-color: var(--ink-soft); }
+    .phase.active { border-color: var(--brand); background: var(--brand-wash); }
+    .ph-top { display: flex; align-items: center; gap: 7px; }
+    .ph-icon { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; flex: 0 0 auto; }
+    .ph-name { font-size: 14px; font-weight: 600; }
+    .ph-time { font-size: 11px; color: var(--ink-soft); font-family: var(--mono); margin-top: 5px; display: flex; gap: 6px; }
+    .ph-pct { margin-left: auto; }
+
+    .timeline { display: flex; align-items: center; gap: 9px; margin-top: 14px; font-size: 11px;
+      font-family: var(--mono); color: var(--ink-soft); }
+    .t-track { position: relative; flex: 1; height: 7px; background: var(--rule-soft); border-radius: 99px; }
+    .t-seg { position: absolute; top: 0; height: 7px; border-radius: 99px; }
+    .t-node { position: absolute; top: -2px; width: 3px; height: 11px; border-radius: 2px; }
+
+    .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 16px 0 12px; border-bottom: 1px solid var(--rule); }
+    .tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer;
+      font-family: inherit; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+    .tab:hover { color: var(--ink); }
+    .tab.active { color: var(--brand-deep); border-bottom-color: var(--brand); }
+
+    .grid3 { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr) 300px; gap: 14px; align-items: start; }
+    @media (max-width: 1250px) { .grid3 { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .col-right { grid-column: 1 / -1; } }
+    @media (max-width: 860px) { .grid3 { grid-template-columns: 1fr; } }
+
+    /* transcripción */
+    .t-controls { display: flex; gap: 8px; margin-bottom: 10px; }
+    .t-controls input { flex: 1; }
+    .transcript { max-height: 52vh; display: flex; flex-direction: column; gap: 9px; }
+    .utt { padding: 9px 11px; border-radius: var(--r-sm); border: 1px solid var(--rule-soft); background: var(--paper-2); font-size: 14px; }
+    .utt.agent { background: var(--brand-wash); border-color: rgba(0,103,177,.2); }
+    .utt-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+    .utt-who { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); }
+    .utt-time { margin-left: auto; font-size: 11px; font-family: var(--mono); color: var(--ink-soft); }
+    mark { background: var(--attention); color: var(--ink); border-radius: 2px; padding: 0 2px; }
+
+    .player { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--rule); }
+    .p-btn, .p-rate { height: 30px; min-width: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--rule);
+      background: var(--card); color: var(--ink-2); cursor: pointer; font-family: inherit; font-size: 11px; }
+    .p-btn:hover, .p-rate:hover { background: var(--paper-2); }
+    .p-play { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .p-bar { flex: 1; height: 5px; background: var(--rule-soft); border-radius: 99px; cursor: pointer; }
+    .p-fill { height: 5px; width: 0; background: var(--brand); border-radius: 99px; }
+    .p-time { font-size: 11px; font-family: var(--mono); color: var(--ink-soft); }
+
+    /* detalle de fase */
+    .phase-sel { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0; }
+    .ps-name { font-size: 14px; font-weight: 600; }
+    .ps-status { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--seal-ok); border: 2px solid currentColor; border-radius: 5px; padding: 1px 6px; transform: rotate(-2deg); }
+    .ps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; margin-bottom: 12px; }
+    .ps-grid > div { display: flex; flex-direction: column; gap: 1px; }
+    .ps-grid .k { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); }
+    .ps-grid .v { font-size: 14px; font-weight: 600; }
+    .checklist { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 5px; font-size: 14px; }
+    .checklist li { display: flex; gap: 7px; align-items: baseline; }
+    .checklist li::before { content: "✓"; color: var(--seal-ok); font-weight: 600; }
+    .keywords { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+    .kw { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--paper-2);
+      border: 1px solid var(--rule-soft); color: var(--ink-2); }
+    .emotion { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .emotion span:first-child { font-size: 20px; }
+    .e-name { font-size: 14px; font-weight: 600; } .e-conf { font-size: 11px; color: var(--ink-soft); }
+    .findings { font-size: 14px; color: var(--ink-2); }
+
+    /* calificación */
+    .score-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    /* sello de calificación: tinta sobre el documento, no anillo de progreso */
+    .gauge { flex: 0 0 auto; text-align: center; padding: 12px 16px; border: 3px solid var(--seal-ok);
+      border-radius: 8px; transform: rotate(-2deg); color: var(--seal-ok); }
+    .gauge.mid { border-color: var(--amber-ink); color: var(--amber-ink); }
+    .gauge.low { border-color: var(--alert); color: var(--alert); }
+    .g-val { font-family: var(--mono); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+    .g-val small { font-size: 11px; color: var(--ink-soft); }
+    .g-label { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; margin-top: 4px; }
+    .dims { flex: 1; min-width: 190px; display: grid; gap: 7px; }
+    .dim-top { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
+    .dim-top span:last-child { font-family: var(--mono); font-weight: 600; }
+    .dim-bar { height: 4px; background: var(--rule-soft); border-radius: 99px; }
+    .dim-fill { height: 5px; background: var(--brand); border-radius: 99px; }
+
+    .profile { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+    .profile li { display: flex; gap: 8px; align-items: baseline; padding-bottom: 6px; border-bottom: 1px dotted var(--rule-soft); }
+    .profile li:last-child { border-bottom: 0; }
+    .pi { flex: 0 0 auto; }
+    .insights { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14px; }
+    .insights li { display: flex; gap: 8px; align-items: baseline; }
+    .pri { margin-left: auto; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+      border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; color: var(--ink-soft); flex: 0 0 auto; }
+    .pri.alta { color: var(--alert); } .pri.media { color: var(--amber-ink); } .pri.baja { color: var(--ink-soft); }
+    .more { display: inline-block; margin-top: 10px; font-size: 14px; font-weight: 600; color: var(--brand-deep); text-decoration: none; }
+    .more:hover { text-decoration: underline; }
+    .col-right { display: grid; gap: 14px; align-content: start; }
+  </style>
 </head>
 <body>
 <div class="shell">
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">🛡️</div>
       <div>
         <div class="brand-name">Guardian AI</div>
-        <div class="brand-sub">Panel de Control</div>
+        <div class="brand-sub">Colsubsidio</div>
       </div>
     </div>
     <nav class="nav">
-      <a class="nav-item" href="/">Resumen</a>
-      <a class="nav-item" href="/">Conversaciones</a>
-      <a class="nav-item" href="/">Llamadas de Voz</a>
+      <a class="nav-item" href="/">Puesto de operación</a>
+      <a class="nav-item" href="/chat">Chat WhatsApp</a>
       <a class="nav-item active" href="/pipeline">Pipeline</a>
       <a class="nav-item" data-soon>Clientes</a>
-      <a class="nav-item" data-soon>Oportunidades</a>
-      <a class="nav-item" data-soon>Pólizas Vendidas</a>
-      <a class="nav-item" data-soon>Productos</a>
       <a class="nav-item" data-soon>Campañas</a>
-      <a class="nav-item" data-soon>Reportes</a>
-      <a class="nav-item" data-soon>Alertas</a>
-      <a class="nav-item" data-soon>Configuración</a>
+      <a class="nav-item" href="/studio">Configuración</a>
     </nav>
     <div class="advisor">
       <div class="advisor-avatar">S</div>
@@ -40,7 +180,6 @@
       </div>
     </div>
     <div class="cols-logo">
-      <div class="cols-mark"></div>
       <div>
         <div class="cols-name">Colsubsidio</div>
         <div class="cols-tag">Con todo lo que te mereces</div>
@@ -48,12 +187,11 @@
     </div>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
     <header class="page-head">
       <div>
-        <h1>Pipeline de Llamadas</h1>
-        <p class="sub">Bitácora detallada y análisis por fases</p>
+        <h1>Pipeline</h1>
+        <p class="sub">Conversaciones cerradas: cada una es una credencial completa con su análisis por fases, calificación y perfil.</p>
       </div>
       <div class="head-actions">
         <span id="headDate" class="chip"></span>
@@ -61,49 +199,47 @@
       </div>
     </header>
 
-    <!-- LIST VIEW -->
     <section id="listView">
-      <div class="card">
-        <div class="card-head"><h2>Llamadas registradas</h2></div>
-        <table class="table" id="callsTable">
-          <thead>
-            <tr><th>ID de llamada</th><th>Cliente</th><th>Fecha</th><th>Duración</th>
-                <th>Canal</th><th>Resultado</th><th>Puntaje</th></tr>
-          </thead>
-          <tbody id="callsBody"><tr><td colspan="7" class="muted">Cargando…</td></tr></tbody>
-        </table>
+      <div class="cred">
+        <div class="card-head"><h2>Conversaciones registradas</h2></div>
+        <div class="table-wrap">
+          <table class="table" id="callsTable">
+            <thead>
+              <tr><th>Serie</th><th>Cliente</th><th>Fecha</th><th>Duración</th>
+                  <th>Canal</th><th>Resultado</th><th>Puntaje</th></tr>
+            </thead>
+            <tbody id="callsBody"><tr><td colspan="7" class="muted">Cargando…</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <!-- DETAIL VIEW -->
     <section id="detailView" hidden>
       <div class="detail-nav">
-        <button id="backBtn" class="link-btn">← Volver al listado</button>
+        <button id="backBtn" class="link-btn">← Volver al archivo</button>
         <div class="pager">
           <button id="prevBtn" class="btn-ghost">Anterior</button>
           <button id="nextBtn" class="btn-ghost">Siguiente →</button>
         </div>
       </div>
 
-      <!-- call header -->
-      <div class="card call-head">
+      <div class="cred call-head">
         <div class="ch-customer">
           <div class="avatar" id="chAvatar">AM</div>
           <div>
-            <div class="ch-name" id="chName">—</div>
-            <div class="ch-phone"><span id="chPhone">—</span> <span id="chNew" class="badge-new">Cliente nuevo</span></div>
+            <div class="ch-name" id="chName">·</div>
+            <div class="ch-phone"><span id="chPhone">·</span> <span id="chNew" class="badge-new">Cliente nuevo</span></div>
           </div>
         </div>
-        <div class="ch-field"><span class="k">ID de llamada</span><span class="v" id="chCode">—</span></div>
-        <div class="ch-field"><span class="k">Fecha</span><span class="v" id="chDate">—</span></div>
-        <div class="ch-field"><span class="k">Duración</span><span class="v" id="chDur">—</span></div>
-        <div class="ch-field"><span class="k">Asesor IA</span><span class="v" id="chAdvisor">—</span></div>
-        <div class="ch-field"><span class="k">Canal</span><span class="v" id="chChannel">—</span></div>
-        <div class="ch-field"><span class="k">Resultado</span><span class="v"><span id="chOutcome" class="badge-outcome">—</span></span></div>
+        <div class="ch-field"><span class="k">Serie</span><span class="v" id="chCode">·</span></div>
+        <div class="ch-field"><span class="k">Fecha</span><span class="v" id="chDate">·</span></div>
+        <div class="ch-field"><span class="k">Duración</span><span class="v" id="chDur">·</span></div>
+        <div class="ch-field"><span class="k">Asesor IA</span><span class="v" id="chAdvisor">·</span></div>
+        <div class="ch-field"><span class="k">Canal</span><span class="v" id="chChannel">·</span></div>
+        <div class="ch-field"><span class="k">Resultado</span><span class="v"><span id="chOutcome" class="badge-outcome">·</span></span></div>
       </div>
 
-      <!-- phases -->
-      <div class="card">
+      <div class="cred" style="margin-top:14px">
         <div class="phases" id="phases"></div>
         <div class="timeline">
           <span class="t-start">00:00</span>
@@ -112,31 +248,30 @@
         </div>
       </div>
 
-      <!-- tabs + panels -->
       <div class="tabs" id="tabs">
         <button class="tab active" data-tab="transcripcion">Transcripción</button>
-        <button class="tab" data-tab="fases">Análisis por Fase</button>
-        <button class="tab" data-tab="emociones">Emociones y Tono</button>
-        <button class="tab" data-tab="objetos">Objetos Detectados</button>
-        <button class="tab" data-tab="acciones">Acciones y Eventos</button>
+        <button class="tab" data-tab="fases">Análisis por fase</button>
+        <button class="tab" data-tab="emociones">Emociones y tono</button>
+        <button class="tab" data-tab="objetos">Datos detectados</button>
+        <button class="tab" data-tab="acciones">Acciones y eventos</button>
       </div>
 
       <div class="grid3">
-        <!-- transcript -->
-        <div class="card col-transcript">
-          <div class="t-controls">
-            <input id="tSearch" type="search" placeholder="Buscar en la transcripción…" />
-            <select id="tSpeaker">
+        <div class="cred col-transcript">
+          <div class="band"><span>Transcripción</span></div>
+          <div class="t-controls" style="margin-top:12px">
+            <input id="tSearch" type="search" placeholder="Buscar en la transcripción…" aria-label="Buscar en la transcripción" />
+            <select id="tSpeaker" aria-label="Filtrar por hablante">
               <option value="">Todos los hablantes</option>
               <option value="agent">Asesor IA</option>
               <option value="customer">Cliente</option>
             </select>
           </div>
-          <div id="transcript" class="transcript"></div>
+          <div id="transcript" class="transcript scroll-y"></div>
           <div class="player">
-            <button class="p-btn" id="pBack" title="Retroceder 10s">⏮</button>
-            <button class="p-btn p-play" id="pPlay" title="Reproducir">▶</button>
-            <button class="p-btn" id="pFwd" title="Avanzar 10s">⏭</button>
+            <button class="p-btn" id="pBack" title="Retroceder 10s" aria-label="Retroceder 10 segundos">⏮</button>
+            <button class="p-btn p-play" id="pPlay" title="Reproducir" aria-label="Reproducir">▶</button>
+            <button class="p-btn" id="pFwd" title="Avanzar 10s" aria-label="Avanzar 10 segundos">⏭</button>
             <button class="p-rate" id="pRate" title="Velocidad">1.0x</button>
             <div class="p-bar" id="pBar"><div class="p-fill" id="pFill"></div></div>
             <span class="p-time" id="pCur">00:00</span><span class="p-time" id="pTotal">00:00</span>
@@ -144,61 +279,52 @@
           </div>
         </div>
 
-        <!-- phase detail -->
-        <div class="card col-phase">
-          <h2>Detalle de la Fase Seleccionada</h2>
+        <div class="cred col-phase">
+          <div class="band"><span>Fase seleccionada</span></div>
           <div class="phase-sel" id="phaseSel">
-            <span class="ps-name" id="psName">—</span>
-            <span class="ps-status" id="psStatus">—</span>
+            <span class="ps-name" id="psName">·</span>
+            <span class="ps-status" id="psStatus">·</span>
           </div>
           <div class="ps-grid">
-            <div><span class="k">Duración</span><span class="v" id="psDur">—</span></div>
-            <div><span class="k">Participación del Asesor IA</span><span class="v" id="psAgent">—</span></div>
-            <div><span class="k">Participación del Cliente</span><span class="v" id="psCustomer">—</span></div>
-            <div><span class="k">Objetivo</span><span class="v" id="psObjective">—</span></div>
+            <div><span class="k">Duración</span><span class="v" id="psDur">·</span></div>
+            <div><span class="k">Habla el asesor</span><span class="v" id="psAgent">·</span></div>
+            <div><span class="k">Habla el cliente</span><span class="v" id="psCustomer">·</span></div>
+            <div><span class="k">Objetivo</span><span class="v" id="psObjective">·</span></div>
           </div>
-          <h3>Análisis de la Fase</h3>
+          <h3 class="label muted" style="margin-bottom:6px">Análisis de la fase</h3>
           <ul class="checklist" id="psChecklist"></ul>
-          <h3>Palabras Clave Detectadas</h3>
+          <h3 class="label muted" style="margin-bottom:6px">Palabras clave</h3>
           <div class="keywords" id="psKeywords"></div>
-          <h3>Emoción Predominante</h3>
+          <h3 class="label muted" style="margin-bottom:6px">Emoción predominante</h3>
           <div class="emotion"><span id="psEmoji">🙂</span>
-            <div><div class="e-name" id="psEmotion">—</div>
-                 <div class="e-conf" id="psConf">—</div></div>
+            <div><div class="e-name" id="psEmotion">·</div>
+                 <div class="e-conf" id="psConf">·</div></div>
           </div>
-          <h3>Hallazgos</h3>
-          <div class="findings" id="psFindings">—</div>
+          <h3 class="label muted" style="margin-bottom:6px">Hallazgos</h3>
+          <div class="findings" id="psFindings">·</div>
         </div>
 
-        <!-- right column -->
         <div class="col-right">
-          <div class="card">
-            <h2>Resumen de la Llamada</h2>
-            <div class="score-row">
-              <div class="gauge">
-                <svg viewBox="0 0 120 70" class="g-svg">
-                  <path d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="#e8ecf2" stroke-width="11" stroke-linecap="round"/>
-                  <path id="gArc" d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="url(#gGrad)" stroke-width="11" stroke-linecap="round"/>
-                  <defs><linearGradient id="gGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#22c55e"/>
-                  </linearGradient></defs>
-                </svg>
-                <div class="g-val"><span id="scoreVal">—</span><small>/100</small></div>
-                <div class="g-label" id="scoreLabel">—</div>
+          <div class="cred">
+            <div class="band"><span>Calificación</span></div>
+            <div class="score-row" style="margin-top:12px">
+              <div class="gauge" id="scoreSeal">
+                <div class="g-val"><span id="scoreVal">·</span><small>/100</small></div>
+                <div class="g-label" id="scoreLabel">·</div>
               </div>
               <div class="dims" id="dims"></div>
             </div>
           </div>
 
-          <div class="card">
-            <h2>Perfil del Cliente</h2>
-            <ul class="profile" id="profile"></ul>
+          <div class="cred">
+            <div class="band"><span>Perfil del cliente</span></div>
+            <ul class="profile" id="profile" style="margin-top:12px"></ul>
             <a class="more" href="#">Ver perfil completo →</a>
           </div>
 
-          <div class="card">
-            <h2>Insights Automáticos</h2>
-            <ul class="insights" id="insights"></ul>
+          <div class="cred">
+            <div class="band"><span>Insights automáticos</span></div>
+            <ul class="insights" id="insights" style="margin-top:12px"></ul>
             <a class="more" href="#">Ver todos los insights →</a>
           </div>
         </div>

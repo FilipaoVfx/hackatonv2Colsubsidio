@@ -4,8 +4,8 @@ Ser afiliado a la caja de compensación Colsubsidio da acceso a tarifas y benefi
 
 # Beneficios para afiliados
 
-Los afiliados pueden acceder a descuentos según su categoría (A, B o C) y acumular beneficios con otros programas de Colsubsidio. El detalle exacto del descuento aplicable lo confirma el asesor, porque depende de tu categoría vigente.
+Los afiliados pueden acceder a descuentos según su categoría (A, B o C) y acumular beneficios con otros programas de Colsubsidio. El descuento exacto depende de tu categoría vigente y queda reflejado en el valor que te muestro antes de confirmar.
 
 # ¿Y si no soy afiliado?
 
-Puedes adquirir los productos de protección igualmente. El asesor te contará además cómo afiliarte a la caja si tu empleador o tu situación lo permite, para acceder a los beneficios preferenciales.
+Puedes adquirir los productos de protección igualmente y contratarlos aquí mismo. Si además te interesa afiliarte a la caja para acceder a beneficios preferenciales, te cuento cómo hacerlo.

@@ -5,23 +5,60 @@ services:
       - .env                 # OPENAI/ELEVENLABS/VAPI/SUPABASE keys (gitignored)
     environment:
       - STEP_MS=450          # dashboard pacing; lower = faster demo
-      # Cerebro del canal WhatsApp: por defecto el MOCK local de la Protege API
-      # (restricción de red sobre la API real). Para la API real, setear
-      # COLSUBSIDIO_API_URL en .env — p.ej. COLSUBSIDIO_API_URL=http://147.93.11.136:9000
-      - COLSUBSIDIO_API_URL=${COLSUBSIDIO_API_URL:-http://mock-protege:9000}
+      # Cerebro del canal WhatsApp: el mock `demo-protege`, sembrado con el
+      # portafolio publicado de Colsubsidio (21 productos desde sourceapi.json)
+      # y con los endpoints de cierre (quotes/enrollments) que la API real aún
+      # no expone. Para apuntar a la API real: COLSUBSIDIO_API_URL en .env
+      # (p.ej. http://mock-protege:9000, alias de red del contenedor
+      # protege-api) — el cierre quedará deshabilitado hasta que la publique.
+      - COLSUBSIDIO_API_URL=${COLSUBSIDIO_API_URL:-http://demo-protege:9000}
+      # API del Playground del Agent Studio. EXPLÍCITA y a un contenedor propio:
+      # aquí `mock-protege` es un alias de red de la API REAL (ver nota abajo),
+      # así que el valor por defecto del código apuntaría a producción. El
+      # Playground escribe usuarios y variables en la API a la que apunte.
+      - STUDIO_API_URL=${STUDIO_API_URL:-http://studio-mock:9000}
     depends_on:
-      - mock-protege
+      - demo-protege
+      - studio-mock
+    volumes:
+      # Configuración del Agent Studio: sobrevive a rebuilds y recreaciones.
+      - guardian-config:/var/lib/guardian
+    # NOTA: el backend ya NO depende del contenedor mock-protege. La API REAL de
+    # Colsubsidio Protege corre como contenedor `protege-api` (imagen
+    # colsubsidio-protege-api) en esta misma red con el alias `mock-protege`,
+    # así que COLSUBSIDIO_API_URL=http://mock-protege:9000 sigue funcionando
+    # sin tocar código. Para volver al mock: comentar/retirar protege-api,
+    # restaurar el depends_on y el mapeo de puertos de abajo.
     expose:
       - "3000"
     restart: unless-stopped
 
   # Mock local de la Colsubsidio Protege API (mismo contrato OpenAPI 0.1.0;
-  # catálogo real capturado el 2026-07-24). El resto del sistema no sabe que
-  # es un mock. Catálogo consultable desde el host: localhost:9000/api/v1/products
+  # catálogo real capturado el 2026-07-24). DESACTIVADO por defecto: la API real
+  # ocupa el puerto 9000 y el alias de red. Se mantiene la definición para
+  # desarrollo offline (levantar manualmente con otro puerto host si se requiere).
   mock-protege:
     build: ./mock-protege
+    profiles: ["mock"]       # solo arranca con: docker compose --profile mock up
     ports:
-      - "9000:9000"
+      - "9001:9000"          # host 9001 para no chocar con la API real (9000)
+    restart: unless-stopped
+
+  # Mock que atiende el canal WhatsApp de la demo: portafolio completo
+  # (21 productos de sourceapi.json) y cierre de venta. Puerto host 9002 para
+  # inspeccionarlo sin chocar con la API real (9000) ni con el mock viejo (9001).
+  demo-protege:
+    build: ./mock-protege
+    ports:
+      - "9002:9000"
+    restart: unless-stopped
+
+  # Mock DEDICADO al Playground del Agent Studio. Contenedor aparte a propósito:
+  # probar un borrador crea usuarios y variables, y esos datos de ensayo no
+  # pueden mezclarse con los de la API real que atiende clientes. Sin puerto en
+  # el host: solo lo alcanza el backend por la red interna.
+  studio-mock:
+    build: ./mock-protege
     restart: unless-stopped
 
   nginx:
@@ -34,3 +71,6 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend:/usr/share/nginx/html:ro
     restart: unless-stopped
+
+volumes:
+  guardian-config:

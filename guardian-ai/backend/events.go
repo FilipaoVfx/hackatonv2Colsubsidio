@@ -25,6 +25,8 @@ const (
 	MESSAGE_RECEIVED         = "MESSAGE_RECEIVED" // chat/WhatsApp: análogo de USER_SPOKE
 	MESSAGE_SENT             = "MESSAGE_SENT"     // chat/WhatsApp: análogo de VOICE_SENT
 	LEAD_READY               = "LEAD_READY"       // Guardian: lead perfilado listo para asesor
+	QUOTE_CREATED            = "QUOTE_CREATED"    // Guardian: cotización mostrada al cliente
+	ENROLLMENT_CREATED       = "ENROLLMENT_CREATED" // Guardian: vinculación emitida (queda asegurado)
 	KNOWLEDGE_RETRIEVED      = "KNOWLEDGE_RETRIEVED" // Guardian: RAG documental consultado
 	TURN_COMPLETED           = "TURN_COMPLETED"   // Guardian: observabilidad por mensaje (spec §11)
 	SUMMARY_GENERATED        = "SUMMARY_GENERATED"

@@ -1,0 +1,436 @@
+<title>Secura CLI · Mapa de arquitectura</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #141a24;
+    --surface-2: #1a2233;
+    --border: #232b38;
+    --ink: #e8edf5;
+    --muted: #7d8aa0;
+    --dim: #56617a;
+    --guardian: #ffe600;
+    --guardian-dim: #4d4a12;
+    --ai: #4f8bff;
+    --ai-dim: #17233d;
+    --live: #2bd576;
+    --live-dim: #16332a;
+    --danger: #ff5c5c;
+    --danger-dim: #3a1e22;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --font-sans: -apple-system, "Segoe UI", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #eef1f7;
+    --border: #dbe1ec;
+    --ink: #131a24;
+    --muted: #5b6577;
+    --dim: #8592a8;
+    --guardian-dim: #fff6b8;
+    --ai-dim: #e4edff;
+    --live-dim: #dcf7e8;
+    --danger-dim: #ffe3e3;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f4f6fa;
+      --surface: #ffffff;
+      --surface-2: #eef1f7;
+      --border: #dbe1ec;
+      --ink: #131a24;
+      --muted: #5b6577;
+      --dim: #8592a8;
+      --guardian-dim: #fff6b8;
+      --ai-dim: #e4edff;
+      --live-dim: #dcf7e8;
+      --danger-dim: #ffe3e3;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--ai); }
+
+  .page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 0 20px 80px;
+  }
+
+  /* ---- terminal-chrome header, echoing the CLI's own tab bar ---- */
+  .chrome {
+    margin: 32px 0 40px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: 0 20px 60px -30px rgba(0,0,0,0.6);
+  }
+  .chrome-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .chrome-title { font-weight: 700; letter-spacing: 0.02em; }
+  .chrome-dot { color: var(--live); }
+  .chrome-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .chrome-tabs span {
+    padding: 9px 14px;
+    color: var(--muted);
+    border-right: 1px solid var(--border);
+  }
+  .chrome-tabs span.on { color: #1a1600; background: var(--guardian); font-weight: 700; }
+  .chrome-body { padding: 22px 24px 26px; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(1.5rem, 3.2vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .chrome-body p { margin: 0; color: var(--muted); max-width: 62ch; }
+
+  section { margin: 48px 0; }
+  h2 {
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .n { color: var(--dim); font-weight: 500; }
+  .lede { color: var(--muted); margin: 0 0 20px; max-width: 68ch; }
+
+  /* ---- mermaid host ---- */
+  .diagram {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px;
+    overflow-x: auto;
+  }
+
+  /* ---- event taxonomy ---- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin: 0 0 18px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+  .event-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 10px;
+  }
+  .ev {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 9px 11px;
+    color: var(--ink);
+  }
+  .ev::before {
+    content: "";
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--cat, var(--dim));
+    margin-right: 8px;
+  }
+  .ev .cat {
+    display: block;
+    color: var(--muted);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 2px 0 0 15px;
+  }
+  .ev.life { --cat: var(--dim); }
+  .ev.user { --cat: var(--ink); }
+  .ev.cog  { --cat: var(--ai); }
+  .ev.tool { --cat: var(--guardian); }
+  .ev.win  { --cat: var(--live); }
+  .ev.err  { --cat: var(--danger); }
+
+  /* ---- module grid ---- */
+  .mod-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 640px) { .mod-grid { grid-template-columns: 1fr; } }
+  .mod {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+  }
+  .mod-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .mod-name { font-family: var(--font-mono); font-weight: 700; font-size: 13.5px; }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-weight: 700;
+  }
+  .badge.real { color: var(--live); background: var(--live-dim); }
+  .badge.mix  { color: var(--ai); background: var(--ai-dim); }
+  .mod-src {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: 0 0 8px;
+    word-break: break-word;
+  }
+  .mod p.desc { margin: 0; font-size: 13.5px; color: var(--ink); }
+
+  /* ---- provenance footer ---- */
+  .prov {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 640px) { .prov { grid-template-columns: 1fr; } }
+  .prov div {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--surface);
+  }
+  .prov .mark { font-family: var(--font-mono); font-size: 18px; font-weight: 800; }
+  .prov .lbl { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 0 6px; }
+  .prov .ex { font-size: 12.5px; color: var(--muted); margin: 0; }
+  .m-real .mark { color: var(--live); }
+  .m-der .mark { color: var(--ai); }
+  .m-sim .mark { color: var(--dim); }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--dim);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+
+<div class="page">
+
+  <div class="chrome">
+    <div class="chrome-bar">
+      <span class="chrome-title">SECURA · Guardian AI Operations Center</span>
+      <span><span class="chrome-dot">●</span> live</span>
+    </div>
+    <div class="chrome-tabs">
+      <span class="on">1·Dashboard</span><span>2·Conversaciones</span><span>3·Pipeline</span><span>4·Playground</span><span>5·Prompt</span><span>6·Knowledge</span><span>7·Analytics</span><span>8·Settings</span>
+    </div>
+    <div class="chrome-body">
+      <p class="eyebrow">Mapa de arquitectura</p>
+      <h1>Cómo Secura CLI opera el sistema real de Guardian AI</h1>
+      <p>Un solo binario Go que habla REST + WebSocket con el backend event-sourced de Guardian AI — sin dashboard web, sin datos simulados salvo donde se etiqueta explícitamente.</p>
+    </div>
+  </div>
+
+  <section>
+    <h2><span class="n">01</span> El flujo completo</h2>
+    <p class="lede">Tres canales de entrada convergen en un único bus de eventos. Ese bus alimenta, en paralelo, la persistencia en Supabase y el WebSocket que la CLI consume en vivo.</p>
+    <div class="diagram">
+<pre class="mermaid">
+flowchart LR
+    subgraph Canales
+        WA["WhatsApp<br/><span style='font-family:monospace'>Kapso Business API</span>"]
+        VO["Voz<br/>Vapi + ElevenLabs"]
+        WEB["Web / Playground"]
+    end
+
+    subgraph Guardian["guardian-ai · Go + Fiber"]
+        direction TB
+        SM["State machine<br/>NEW→…→READY_FOR_ADVISOR"]
+        BUS["Event bus<br/>22 tipos de evento"]
+        RAG["RAG<br/>/knowledge"]
+        SM --> BUS
+        RAG --> BUS
+    end
+
+    LLM["OpenRouter<br/>claude-sonnet-4"]
+    PROTEGE["Colsubsidio Protege API<br/>productos · reglas · recomendación"]
+    SUPA[("Supabase<br/>events + proyecciones")]
+
+    WA --> Guardian
+    VO --> Guardian
+    WEB --> Guardian
+    Guardian <--> LLM
+    Guardian <--> PROTEGE
+    BUS --> SUPA
+
+    CLI["Secura CLI<br/>Go + Bubble Tea"]
+    BUS -. "WS /ws · /ws/studio" .-> CLI
+    Guardian <-- "REST /api/v1/*" --> CLI
+
+    style Guardian fill:#1a2233,stroke:#4f8bff,color:#e8edf5
+    style CLI fill:#2a2612,stroke:#ffe600,color:#e8edf5
+    style SUPA fill:#141a24,stroke:#7d8aa0,color:#e8edf5
+</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">02</span> Taxonomía de eventos</h2>
+    <p class="lede">Los 22 tipos de evento del envelope <code>{event_id, type, call_id, sequence, timestamp, producer, payload}</code>, agrupados por lo que representan — el mismo código de color que usa la CLI en Pipeline, Conversaciones y <code>secura tail</code>.</p>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--dim)"></span>Ciclo de vida</span>
+      <span><span class="sw" style="background:var(--ink)"></span>Canal / usuario</span>
+      <span><span class="sw" style="background:var(--ai)"></span>Cognición (LLM · RAG)</span>
+      <span><span class="sw" style="background:var(--guardian)"></span>Herramientas</span>
+      <span><span class="sw" style="background:var(--live)"></span>Resultado de negocio</span>
+      <span><span class="sw" style="background:var(--danger)"></span>Error</span>
+    </div>
+    <div class="event-grid">
+      <div class="ev life">CALL_STARTED<span class="cat">ciclo de vida</span></div>
+      <div class="ev life">CALL_ENDED<span class="cat">ciclo de vida</span></div>
+      <div class="ev life">STATE_CHANGED<span class="cat">ciclo de vida</span></div>
+      <div class="ev user">USER_SPOKE<span class="cat">canal</span></div>
+      <div class="ev user">MESSAGE_RECEIVED<span class="cat">canal</span></div>
+      <div class="ev user">TRANSCRIPT_UPDATED<span class="cat">canal</span></div>
+      <div class="ev cog">INTENT_DETECTED<span class="cat">cognición</span></div>
+      <div class="ev cog">FEATURE_UPDATED<span class="cat">cognición</span></div>
+      <div class="ev cog">LLM_REQUESTED<span class="cat">cognición</span></div>
+      <div class="ev cog">LLM_RESPONSE<span class="cat">cognición</span></div>
+      <div class="ev cog">KNOWLEDGE_RETRIEVED<span class="cat">cognición</span></div>
+      <div class="ev tool">TOOL_CALLED<span class="cat">herramienta</span></div>
+      <div class="ev tool">TOOL_EXECUTED<span class="cat">herramienta</span></div>
+      <div class="ev win">RECOMMENDATION_GENERATED<span class="cat">negocio</span></div>
+      <div class="ev win">QUOTE_CREATED<span class="cat">negocio</span></div>
+      <div class="ev win">ENROLLMENT_CREATED<span class="cat">negocio</span></div>
+      <div class="ev win">LEAD_READY<span class="cat">negocio</span></div>
+      <div class="ev user">VOICE_SENT<span class="cat">canal</span></div>
+      <div class="ev user">MESSAGE_SENT<span class="cat">canal</span></div>
+      <div class="ev life">TURN_COMPLETED<span class="cat">ciclo de vida</span></div>
+      <div class="ev life">SUMMARY_GENERATED<span class="cat">ciclo de vida</span></div>
+      <div class="ev err">ERROR_OCCURRED<span class="cat">error</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">03</span> Los 8 módulos</h2>
+    <p class="lede">Cada tab consume la misma interfaz <code>api.Source</code>. La columna de la izquierda es literalmente el endpoint que respalda lo que se ve en pantalla.</p>
+    <div class="mod-grid">
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">1 · Dashboard</span><span class="badge real">real</span></div>
+        <p class="mod-src">GET /api/health · /api/capabilities · /api/analytics/kpis</p>
+        <p class="desc">Latencia medida, 7 capabilities del sistema, tokens/costo/tool-calls acumulados.</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">2 · Conversaciones</span><span class="badge real">real</span></div>
+        <p class="mod-src">GET /api/calls · /api/analytics/calls/:id · /api/calls/:id/events</p>
+        <p class="desc">Drill-down por Transcript, Fases, Tool Calls, Insights y Costo — todo de eventos reales.</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">3 · Pipeline</span><span class="badge real">real</span></div>
+        <p class="mod-src">WS /ws · POST /api/whatsapp/simulate-inbound · /api/calls/simulate</p>
+        <p class="desc">El módulo WOW: renderiza la máquina de 9 estados en vivo, disparada por una conversación real.</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">4 · Playground</span><span class="badge real">real</span></div>
+        <p class="mod-src">POST /api/studio/playground/start · /message</p>
+        <p class="desc">Agente real en sesión aislada — nunca toca producción, pero el LLM y el costo son genuinos.</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">5 · Prompt</span><span class="badge real">real</span></div>
+        <p class="mod-src">GET /api/studio/prompt · /versions · POST /rollback/:v</p>
+        <p class="desc">Inspector del prompt vivo + historial versionado con rollback confirmado en dos pasos.</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">6 · Knowledge</span><span class="badge mix">real + derivado</span></div>
+        <p class="mod-src">GET /api/studio/config → runtime.rag_* · eventos KNOWLEDGE_RETRIEVED</p>
+        <p class="desc">Estado real del RAG; consultas top agregadas de la sesión en vivo (no histórico).</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">7 · Analytics</span><span class="badge mix">real + derivado</span></div>
+        <p class="mod-src">GET /api/analytics/kpis + conteo de /api/calls</p>
+        <p class="desc">KPIs medidos más conversión derivada (leads_ready / llamadas) y heatmap de actividad de sesión.</p>
+      </div>
+      <div class="mod">
+        <div class="mod-head"><span class="mod-name">8 · Settings</span><span class="badge real">real</span></div>
+        <p class="mod-src">GET/PUT /api/studio/config/draft · POST /publish</p>
+        <p class="desc">Perillas reales del agente (empatía, formalidad, safety) con confirmación antes de publicar.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">04</span> Sistema de honestidad</h2>
+    <p class="lede">Ninguna cifra llega a pantalla sin procedencia — es una restricción de tipo en Go (<code>prov.Value[T]</code>), no una convención.</p>
+    <div class="prov">
+      <div class="m-real">
+        <div class="mark">◆ medido</div>
+        <div class="lbl">Measured</div>
+        <p class="ex">Latencia de /health, tokens y costo de LLM_RESPONSE, capabilities, KPIs.</p>
+      </div>
+      <div class="m-der">
+        <div class="mark">◈ derivado</div>
+        <div class="lbl">Derived</div>
+        <p class="ex">Conversión (leads_ready / llamadas totales) — cálculo sobre datos medidos.</p>
+      </div>
+      <div class="m-sim">
+        <div class="mark">◇ simulado</div>
+        <div class="lbl">Simulated</div>
+        <p class="ex">Solo en modo offline / replay — una llamada real grabada, etiquetada como tal.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>secura-cli · guardianai/cli</span>
+    <span>Go 1.24 · Bubble Tea v1 · Cobra · gorilla/websocket</span>
+  </footer>
+
+</div>

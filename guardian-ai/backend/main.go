@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // hookSnapshot is the lock-free, JSON-serializable view of the last webhook.
@@ -53,10 +54,15 @@ func main() {
 	// Real Supabase persistence via pgx (ADR-004/005). Optional: if the DB URL
 	// is unset or unreachable the demo still runs on the in-memory store.
 	var analytics *Analytics
+	var persistPool *pgxpool.Pool // réplica opcional de la config del Studio
+	var configStore *ConfigStore
+	var studioRAG *RAG
+	var studioPlayground *Playground
 	if p, err := NewSupabasePersistence(); err != nil {
 		log.Printf("supabase persistence disabled: %v", err)
 	} else if p != nil {
 		bus.Subscribe("*", p.Append)
+		persistPool = p.Pool()
 		analytics = NewAnalytics(p.Pool())
 		// Every finished call is projected into the analytics tables so it
 		// shows up in "Pipeline de Llamadas" (demo, real GPT call or web call).
@@ -119,6 +125,31 @@ func main() {
 		guardian = NewGuardianEngine(bus, protegeAPI, NewLLMClient(), NewTools(protegeAPI, bus), sessions, rag, affiliates)
 		log.Printf("guardian conversation engine enabled (whatsapp brain, rag=%s, afiliado360=%v)", rag.Mode(), affiliates.Enabled())
 
+		// Agent Studio (plan 10_PLAN_AGENT_STUDIO.md): la configuración
+		// publicada se carga del disco y se aplica al motor. Sin archivo, sin
+		// base o con un archivo ilegible, el motor arranca con los defaults de
+		// fábrica — que son exactamente el comportamiento de siempre.
+		configStore = NewConfigStore(configDir(), persistPool)
+		guardian.SetConfig(configStore.Published())
+		if e := configStore.LoadError(); e != "" {
+			log.Printf("agent studio: arranque degradado — %s", e)
+		}
+		log.Printf("agent studio: configuración v%d aplicada al motor", configStore.Published().Version)
+		studioRAG = rag
+
+		// Playground aislado (plan §7): bus, sesiones y motor propios, contra el
+		// mock por defecto. Un mensaje de prueba no tiene camino físico hacia
+		// WhatsApp porque el consumidor de entrega vive en el bus principal.
+		studioPlayground = NewPlayground(configStore, rag, NewLLMClient(),
+			studioAPIBase(), os.Getenv("COLSUBSIDIO_API_TOKEN"))
+		if studioPlayground.APIBase() == protegeAPI.Base() {
+			log.Printf("SECURITY WARNING: STUDIO_API_URL apunta a la MISMA API que producción (%s). "+
+				"Las pruebas del Playground crearán usuarios y variables reales; apúntalo al mock.",
+				studioPlayground.APIBase())
+		}
+		log.Printf("agent studio: playground aislado contra %s (máx. %d turnos/sesión)",
+			studioPlayground.APIBase(), maxPlaygroundTurns)
+
 		// Seed de reglas 360 (derivadas de la base de afiliados) vía el CRUD de
 		// la propia API (POST /api/v1/rules) — mismo camino para mock y real.
 		// Idempotente: el mock upserta por Name.
@@ -146,6 +177,9 @@ func main() {
 	// motor (historial, catálogo, recomendaciones) vivía hasta el reinicio.
 	go func() {
 		for range time.Tick(30 * time.Minute) {
+			if n := studioPlayground.Sweep(); n > 0 {
+				log.Printf("agent studio: %d sesión(es) de playground liberadas por inactividad", n)
+			}
 			if guardian.Enabled() {
 				if n := guardian.Sweep(); n > 0 {
 					log.Printf("guardian: %d conversación(es) liberadas por ventana de 24h vencida", n)
@@ -481,6 +515,31 @@ func main() {
 		}
 		return c.SendStatus(200)
 	})
+
+	// Agent Studio: consola de configuración del asesor (plan
+	// 10_PLAN_AGENT_STUDIO.md). Solo se monta si hay motor Guardian: sin él no
+	// hay nada que configurar.
+	if configStore != nil {
+		RegisterStudioRoutes(app, StudioDeps{
+			Store:  configStore,
+			Engine: guardian,
+			RAG:    studioRAG,
+			Products: func() []ProtegeProduct {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				products, _ := protegeAPI.GetProducts(ctx)
+				return products
+			},
+			Rules: func() []ProtegeRule {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				rules, _ := protegeAPI.GetRules(ctx, "")
+				return rules
+			},
+			Playground: studioPlayground,
+		})
+		log.Printf("agent studio: consola disponible en /studio")
+	}
 
 	// Debug/diagnostics for the WhatsApp wiring (demo + hackathon judges).
 	app.Get("/api/whatsapp/debug", func(c *fiber.Ctx) error {

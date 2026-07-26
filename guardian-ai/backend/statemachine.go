@@ -18,22 +18,38 @@ const (
 	StateProfile     LeadState = "PROFILE_DISCOVERY"
 	StateFinancial   LeadState = "FINANCIAL_QUALIFICATION"
 	StateMatching    LeadState = "PROJECT_MATCHING"
+	StateClosing     LeadState = "CLOSING"
 	StateReady       LeadState = "READY_FOR_ADVISOR"
 	StateNurturing   LeadState = "NURTURING"
 	StateCompleted   LeadState = "COMPLETED"
 )
 
-// leadTransitions holds the ONLY legal arrows (spec flow + the NURTURING branch
-// out of matching when the customer objects).
+// leadTransitions holds the ONLY legal arrows.
+//
+// El camino feliz termina en CLOSING → COMPLETED: la persona queda ASEGURADA
+// dentro del chat. READY_FOR_ADVISOR dejó de ser el final normal y quedó como
+// EXCEPCIÓN: solo se alcanza cuando el cliente pide un humano de forma
+// explícita o cuando el cierre falla y hay que escalar. NURTURING sigue siendo
+// la salida cuando el cliente no quiere avanzar.
 var leadTransitions = map[LeadState][]LeadState{
 	StateNew:         {StateAffiliation},
 	StateAffiliation: {StateProfile},
 	StateProfile:     {StateFinancial},
 	StateFinancial:   {StateMatching},
-	StateMatching:    {StateReady, StateNurturing},
+	StateMatching:    {StateClosing, StateReady, StateNurturing},
+	StateClosing:     {StateCompleted, StateReady, StateNurturing},
 	StateReady:       {StateNurturing, StateCompleted},
 	StateNurturing:   {StateCompleted},
 	StateCompleted:   {},
+}
+
+// LeadStateOrder es el recorrido canónico del lead, en el orden en que se
+// muestra (consola, troquel del chat). Vive aquí, junto a las flechas legales,
+// para que añadir un estado y olvidarlo en la consola sea un test en rojo y no
+// un panel "Estado real" que miente (TestLeadStateOrderCoversEveryState).
+var LeadStateOrder = []LeadState{
+	StateNew, StateAffiliation, StateProfile, StateFinancial,
+	StateMatching, StateClosing, StateCompleted, StateReady, StateNurturing,
 }
 
 // CanTransition reports whether from→to is a legal arrow.
@@ -53,6 +69,8 @@ const (
 	ActionAsk       = "ask"                    // seguir perfilando naturalmente
 	ActionAnswer    = "answer_question"        // el cliente preguntó algo (RAG)
 	ActionRecommend = "request_recommendation" // el cliente pide recomendación ya
+	ActionAdjust    = "adjust_coverage"        // quiere cambiar de plan o coberturas
+	ActionAccept    = "accept_offer"           // acepta y quiere vincularse
 	ActionHandoff   = "handoff"                // el cliente quiere un asesor humano
 	ActionClose     = "close"                  // el cliente quiere terminar
 )
@@ -66,7 +84,8 @@ var allowedActions = map[LeadState][]string{
 	StateAffiliation: {ActionAsk, ActionAnswer, ActionHandoff, ActionClose},
 	StateProfile:     {ActionAsk, ActionAnswer, ActionRecommend, ActionHandoff, ActionClose},
 	StateFinancial:   {ActionAsk, ActionAnswer, ActionRecommend, ActionHandoff, ActionClose},
-	StateMatching:    {ActionAsk, ActionAnswer, ActionHandoff, ActionClose},
+	StateMatching:    {ActionAsk, ActionAnswer, ActionAdjust, ActionAccept, ActionHandoff, ActionClose},
+	StateClosing:     {ActionAsk, ActionAnswer, ActionAdjust, ActionAccept, ActionHandoff, ActionClose},
 	StateNurturing:   {ActionAnswer, ActionClose},
 }
 
@@ -119,9 +138,11 @@ func StateGoal(s LeadState) string {
 	case StateFinancial:
 		return "Entender con tacto la capacidad financiera (ingresos aproximados y cuánto podría destinar a protección). Normalizar el tema: es para recomendar algo que sí le sirva."
 	case StateMatching:
-		return "Explicar las recomendaciones que entregó el sistema usando EXACTAMENTE sus razones. No inventar productos ni beneficios. Preguntar si desea que un asesor formalice."
+		return "Explicar las recomendaciones que entregó el sistema usando EXACTAMENTE sus razones. No inventar productos, coberturas ni precios. Ofrecer comparar opciones o ajustar coberturas, y proponer el cierre: TÚ formalizas la vinculación aquí mismo, sin derivar a nadie."
+	case StateClosing:
+		return "Cerrar la vinculación: confirmar el plan cotizado, resolver la última duda y pedir una aceptación explícita. El resumen, el precio y el radicado los entrega el sistema: NUNCA los inventes ni los adelantes."
 	case StateNurturing:
-		return "Cerrar con calidez dejando la puerta abierta: se le compartirá información útil y un asesor quedará atento."
+		return "Cerrar con calidez dejando la puerta abierta: se le compartirá información útil y podrá retomar la contratación cuando quiera."
 	default:
 		return "Atender al cliente con calidez y claridad."
 	}
@@ -189,10 +210,22 @@ func condMet(c ProtegeCondition, known map[string]interface{}) bool {
 // MissingQuestions returns the questions of `state` whose variable is still
 // unknown and whose conditions are met — i.e. what the conversation still needs
 // to discover. Guidance for the prompt, never a form.
+//
+// Incluye las OPCIONALES: son las que enriquecen el perfil (vehículo, bici,
+// viajes, crédito) y sin ellas el agente nunca preguntaría por los productos
+// que dependen de esas variables. Lo que NO hacen es bloquear la etapa: para
+// eso está missingRequired.
 func MissingQuestions(state LeadState, questions []ProtegeQuestion, known map[string]interface{}) []ProtegeQuestion {
+	req := missingQuestions(state, questions, known, true)
+	return append(req, missingQuestions(state, questions, known, false)...)
+}
+
+// missingQuestions filtra por etapa y, si requiredOnly, solo las obligatorias;
+// si no, solo las opcionales.
+func missingQuestions(state LeadState, questions []ProtegeQuestion, known map[string]interface{}, requiredOnly bool) []ProtegeQuestion {
 	var out []ProtegeQuestion
 	for _, q := range questions {
-		if !q.Required {
+		if q.Required != requiredOnly {
 			continue
 		}
 		fin := isFinancialVar(q.VariableKey)
@@ -264,5 +297,7 @@ func StageComplete(state LeadState, questions []ProtegeQuestion, known map[strin
 	if len(questions) == 0 {
 		return false
 	}
-	return len(MissingQuestions(state, questions, known)) == 0
+	// Solo las OBLIGATORIAS deciden si la etapa terminó: las opcionales guían la
+	// conversación pero no pueden dejarla atascada preguntando para siempre.
+	return len(missingQuestions(state, questions, known, true)) == 0
 }

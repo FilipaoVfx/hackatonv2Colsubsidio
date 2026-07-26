@@ -180,7 +180,7 @@ func (e *ProtegeEngine) finish(ctx context.Context, convID, phone string) error 
 	if len(lines) == 1 {
 		lines = append(lines, "Un asesor revisará tu perfil y te contactará con opciones.")
 	}
-	lines = append(lines, "\n¿Deseas que un asesor formalice alguna? Responde para continuar.")
+	lines = append(lines, "\n(Modo básico: el asistente conversacional no está disponible ahora, así que no puedo formalizar aquí. Un asesor retoma tu caso.)")
 	e.sendAgent(convID, phone, strings.Join(lines, "\n"))
 
 	e.bus.Publish(convID, SUMMARY_GENERATED, "colsubsidio_api", map[string]interface{}{

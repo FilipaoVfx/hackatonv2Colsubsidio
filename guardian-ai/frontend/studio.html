@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guardian AI · Agent Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/guardian.css" />
+  <style>
+    /* Dos columnas: a la izquierda se diseña el comportamiento, a la derecha se
+       ve lo que el modelo va a recibir. El inspector se queda a la vista. */
+    .st-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,420px); gap: 14px; align-items: start; }
+    @media (max-width: 1100px) { .st-grid { grid-template-columns: 1fr; } }
+    @media (min-width: 1101px) { .st-side { position: sticky; top: 14px; } }
+
+    .st-section + .st-section { margin-top: 14px; }
+    .st-section h2 { margin: 0 0 4px; }            /* 20px del sistema */
+    .st-section .hint { color: var(--ink-soft); margin: 0 0 14px; max-width: 62ch; } /* 14px del sistema */
+
+    /* Perilla: rótulo de campo + valor en mono, como los campos de la credencial */
+    .knob { padding: 10px 0; border-bottom: 1px dotted var(--rule); }
+    .knob:last-child { border-bottom: 0; }
+    .knob-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .knob-value { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; color: var(--brand); }
+    .knob-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+    .knob-phrase { color: var(--ink-2); margin-top: 6px; font-style: italic; } /* la instrucción real: se lee, no se adivina */
+
+    input[type=range] { width: 100%; margin: 6px 0 0; accent-color: var(--brand); height: 22px; }
+    input[type=range]:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 6px; }
+
+    .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px dotted var(--rule); }
+    .switch-row:last-child { border-bottom: 0; }
+
+
+    .goal { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+    .goal:last-child { border-bottom: 0; }
+    .goal .order { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-soft); width: 18px; }
+    .goal .name { flex: 1; }
+    .goal .moves { display: flex; gap: 4px; }
+    .goal button { padding: 4px 10px; }
+    .goal.off .name { color: var(--ink-soft); text-decoration: line-through; }
+
+    .levels { display: flex; gap: 8px; flex-wrap: wrap; }
+    .levels button[aria-pressed="true"] { background: var(--brand-wash); border-color: var(--brand); color: var(--brand-deep); }
+
+    .prompt-box { background: var(--paper-2); border: 1px solid var(--rule-soft); border-radius: 10px; padding: 12px;
+                  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.6;
+                  white-space: pre-wrap; word-break: break-word; max-height: 52vh; overflow-y: auto; }
+    .locked { background: var(--paper-2); border-radius: 10px; padding: 4px 12px; }
+    .err { color: var(--alert); margin-top: 4px; }
+    .st-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .head-with-seal { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+
+    /* Pie de sección: el botón que de verdad cambia el comportamiento del
+       asesor, junto al estado de esa sección. Uno por sección, para que la
+       acción esté donde se hizo el cambio y no al final de la página. */
+    .sec-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+                margin-top: 14px; padding-top: 12px; border-top: 1px dotted var(--rule); }
+    .sec-state { font-size: 11px; color: var(--ink-soft); }
+    .sec-state.ok { color: var(--seal-ok); font-weight: 600; }
+    .sec-state.err { color: var(--alert); font-weight: 600; }
+    .sec-state.pending { color: #8a6d00; font-weight: 600; }
+
+    /* Playground: mismo lenguaje que el hilo de /chat, para que probar el
+       borrador se vea exactamente como se verá en WhatsApp. */
+    .side-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .side-tabs button[aria-pressed="true"] { background: var(--brand-wash); border-color: var(--brand); color: var(--brand-deep); }
+
+    .wa-thread { padding: 12px; min-height: 190px; max-height: 40vh; overflow-y: auto;
+                 display: flex; flex-direction: column; gap: 8px;
+                 border: 1px solid var(--rule-soft); border-radius: 10px; background: var(--paper-2); }
+    .wa-thread.empty { align-items: center; justify-content: center; text-align: center; color: var(--ink-soft); }
+    .bubble { max-width: 82%; padding: 9px 12px; border-radius: 10px; line-height: 1.45;
+              white-space: pre-wrap; word-wrap: break-word; border: 1px solid var(--rule-soft); background: var(--card);
+              animation: pop .16s ease-out; }
+    @keyframes pop { from { transform: translateY(3px); opacity: 0; } }
+    .bubble .who { display: block; font-size: 11px; font-weight: 600; letter-spacing: .09em;
+                   text-transform: uppercase; color: var(--ink-soft); margin-bottom: 3px; }
+    .bubble.user { align-self: flex-start; }
+    .bubble.agent { align-self: flex-end; background: var(--brand-wash); border-color: rgba(0,103,177,.22); }
+    .bubble.typing { display: flex; gap: 4px; align-items: center; padding: 12px 14px; align-self: flex-end; }
+    .bubble.typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft); animation: blink 1.2s infinite; }
+    .bubble.typing span:nth-child(2) { animation-delay: .2s } .bubble.typing span:nth-child(3) { animation-delay: .4s }
+    @keyframes blink { 0%,80%,100% { opacity: .25 } 40% { opacity: 1 } }
+    .bubble .quick { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+    .bubble .quick span { font-size: 11px; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; color: var(--ink-soft); }
+
+    .wa-compose { display: flex; gap: 8px; margin-top: 12px; }
+    .wa-compose input { flex: 1; min-width: 0; }
+    .play-meta { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 10px;
+                 font-size: 11px; color: var(--ink-soft); }
+    .play-meta .mono { color: var(--brand); }
+    .play-meta button { margin-left: auto; }
+
+    /* Historial de versiones: una línea por versión, como el reverso sellado
+       de la credencial. La viva se distingue por el sello, no por un color. */
+    .versions-head { margin-top: 16px; font-size: 11px; font-weight: 600; letter-spacing: .09em;
+                     text-transform: uppercase; color: var(--ink-soft); }
+    .version-list { margin-top: 4px; }
+    .version { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+    .version:last-child { border-bottom: 0; }
+    .version .v-num { font-family: var(--mono); font-size: 11px; color: var(--brand); flex: 0 0 auto; }
+    .version .v-note { flex: 1; min-width: 0; word-break: break-word; }
+    .version .v-note em { color: var(--ink-soft); font-style: normal; }
+    .version .v-date { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); flex: 0 0 auto; }
+    .version.empty { color: var(--ink-soft); }
+
+    /* Roadmap: texto, no controles. Nada aquí se puede pulsar. */
+    .roadmap { margin-top: 4px; }
+    .rm { padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+    .rm:last-child { border-bottom: 0; }
+    .rm-name { display: block; font-weight: 600; }
+    .rm-what { display: block; color: var(--ink-soft); }
+
+    /* Actividad del motor durante el turno (vía /ws/studio) */
+    .ev-mini { margin-top: 10px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; }
+    .ev-mini div { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--rule-soft); }
+    .ev-mini div:last-child { border-bottom: 0; }
+    .ev-mini .t { font-family: var(--mono); color: var(--brand-deep); flex: 0 0 auto; }
+    .ev-mini .d { color: var(--ink-soft); min-width: 0; word-break: break-word; }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">🛡️</div>
+      <div>
+        <div class="brand-name">Guardian AI</div>
+        <div class="brand-sub">Colsubsidio</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item" href="/">Puesto de operación</a>
+      <a class="nav-item" href="/chat">Chat WhatsApp</a>
+      <a class="nav-item" href="/pipeline">Pipeline</a>
+      <a class="nav-item" data-soon>Clientes</a>
+      <a class="nav-item" data-soon>Campañas</a>
+      <a class="nav-item active" href="/studio">Configuración</a>
+    </nav>
+    <div class="advisor">
+      <div class="advisor-avatar">S</div>
+      <div>
+        <div class="advisor-role">Asesor IA</div>
+        <div class="advisor-name" id="sideAgentName">Guardian</div>
+        <div class="advisor-status"><span class="dot-on"></span> En línea</div>
+      </div>
+    </div>
+    <div class="cols-logo">
+      <div>
+        <div class="cols-name">Colsubsidio</div>
+        <div class="cols-tag">Con todo lo que te mereces</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <h1>Agent Studio</h1>
+        <p class="sub">Diseña cómo se comporta el asesor. No se escriben prompts: se mueven controles y el sistema compone las instrucciones. Cada sección tiene su botón <strong>Aplicar cambios</strong>: eso es lo que pone el cambio a atender clientes, desde el siguiente mensaje de cada conversación.</p>
+      </div>
+      <div class="head-actions">
+        <span class="chip" id="statusChip">cargando…</span>
+        <button class="btn-ghost" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
+      </div>
+    </header>
+
+    <div id="storeError" class="empty-state" hidden></div>
+
+    <section class="st-grid">
+      <div>
+        <!-- General -->
+        <div class="cred st-section">
+          <div class="eyebrow">General</div>
+          <h2>El agente</h2>
+          <p class="hint">Lo que identifica al asesor y con qué versión está corriendo ahora mismo.</p>
+          <div class="field">
+            <span class="k">Nombre visible</span><span class="rule-fill"></span>
+            <input class="v" id="agentName" maxlength="40" style="max-width:260px" />
+          </div>
+          <div class="err" id="agentNameErr" hidden></div>
+          <div class="field"><span class="k">Versión viva</span><span class="rule-fill"></span><span class="v mono" id="liveVersion">—</span></div>
+          <div class="field"><span class="k">Modelo</span><span class="rule-fill"></span><span class="v mono" id="model">—</span></div>
+          <div class="field"><span class="k">Última edición</span><span class="rule-fill"></span><span class="v mono" id="updatedAt">—</span></div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="general" disabled>Aplicar cambios</button>
+            <button class="btn-ghost" id="resetBtn">Restablecer a fábrica</button>
+            <span class="sec-state" data-state="general"></span>
+          </div>
+        </div>
+
+        <!-- Personalidad -->
+        <div class="cred st-section">
+          <div class="eyebrow">Personalidad</div>
+          <h2>Cómo habla</h2>
+          <p class="hint">Cada control se traduce a una instrucción concreta, que puedes leer debajo del slider y verificar en el prompt.</p>
+          <div id="sliders"></div>
+          <div class="switch-row">
+            <label for="emojis">Puede usar emojis</label>
+            <input type="checkbox" id="emojis" />
+          </div>
+          <div class="switch-row">
+            <label for="humor">Puede usar humor</label>
+            <input type="checkbox" id="humor" />
+          </div>
+          <div class="knob">
+            <div class="knob-head"><span class="label">Longitud de respuesta</span></div>
+            <div class="levels" id="lengths"></div>
+            <div class="knob-phrase" id="lengthPhrase"></div>
+          </div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="persona" disabled>Aplicar cambios</button>
+            <span class="sec-state" data-state="persona"></span>
+          </div>
+        </div>
+
+        <!-- Objetivos -->
+        <div class="cred st-section">
+          <div class="eyebrow">Comercial</div>
+          <h2>Objetivos por prioridad</h2>
+          <p class="hint">El orden manda: cuando dos objetivos compiten, gana el que esté más arriba. Desmarca los que no apliquen a esta campaña.</p>
+          <div id="goals"></div>
+          <div class="err" id="goalsErr" hidden></div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="sales" disabled>Aplicar cambios</button>
+            <span class="sec-state" data-state="sales"></span>
+          </div>
+        </div>
+
+        <!-- Seguridad -->
+        <div class="cred st-section">
+          <div class="eyebrow">Seguridad</div>
+          <h2>Límites del asesor</h2>
+          <p class="hint">Estos límites se suman a las reglas que el motor aplica siempre: no inventar productos ni precios, y que las decisiones de negocio las tome la API de Colsubsidio.</p>
+          <div id="forbid"></div>
+          <div class="knob">
+            <div class="knob-head"><span class="label">Nivel de protección</span></div>
+            <div class="levels" id="levels"></div>
+            <div class="knob-phrase" id="levelPhrase"></div>
+          </div>
+          <div class="sec-foot">
+            <button class="btn-primary" data-apply="safety" disabled>Aplicar cambios</button>
+            <span class="sec-state" data-state="safety"></span>
+          </div>
+        </div>
+
+        <!-- Historial -->
+        <div class="cred st-section">
+          <div class="eyebrow">Historial</div>
+          <h2>Versiones del asesor</h2>
+          <p class="hint">Cada <em>Aplicar cambios</em> crea una versión y la pone a atender clientes. Volver a una anterior también crea una versión nueva, así que nunca se pierde el rastro de lo que estuvo vivo.</p>
+          <div class="field"><span class="k">Peso en el prompt</span><span class="rule-fill"></span><span class="v mono" id="configBytes">—</span></div>
+          <div class="versions-head">Publicadas</div>
+          <div id="versions" class="version-list"></div>
+        </div>
+
+        <!-- Roadmap declarado: lo que NO está construido, dicho como tal -->
+        <div class="cred st-section">
+          <div class="eyebrow">Roadmap</div>
+          <div class="head-with-seal"><h2>Lo que todavía no hace</h2><span class="seal">no construido</span></div>
+          <p class="hint">El PRD contempla más secciones. Aquí no hay interruptores muertos: lo que no está hecho se dice, no se maqueta como si funcionara.</p>
+          <div class="roadmap">
+            <div class="rm"><span class="rm-name">Conocimiento, memoria y razonamiento</span><span class="rm-what">Los valores reales están a la vista en el panel <em>Motor</em>; editarlos desde aquí es la siguiente fase.</span></div>
+            <div class="rm"><span class="rm-name">Voz</span><span class="rm-what">Elegir voz y velocidad para el canal telefónico. Hoy la voz se configura en ElevenLabs/Vapi.</span></div>
+            <div class="rm"><span class="rm-name">Canales</span><span class="rm-what">Personalidad distinta por canal (WhatsApp, voz, web). Hoy la configuración es una sola para todos.</span></div>
+            <div class="rm"><span class="rm-name">Experimentos</span><span class="rm-what">Repartir tráfico entre dos versiones y comparar. Hoy se publica una versión a la vez, con vuelta atrás.</span></div>
+            <div class="rm"><span class="rm-name">Analíticas de configuración</span><span class="rm-what">Conversión y coste por versión publicada. Hoy el Pipeline mide conversaciones, no versiones.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Columna derecha: probar el borrador / ver lo que recibe el modelo -->
+      <aside class="st-side">
+        <div class="side-tabs" role="tablist">
+          <button class="btn-ghost" id="tabPlay" role="tab" aria-pressed="true" aria-controls="panelPlay">Probar</button>
+          <button class="btn-ghost" id="tabPrompt" role="tab" aria-pressed="false" aria-controls="panelPrompt">Prompt</button>
+        </div>
+
+        <div id="panelPlay">
+          <div class="cred st-section">
+            <div class="eyebrow">Playground</div>
+            <div class="head-with-seal"><h2>Probar el borrador</h2><span class="seal" id="playSeal">aislado</span></div>
+            <p class="hint" id="playHint">Escribe como si fueras el cliente. Corre con el borrador y en un mundo aparte: no envía WhatsApp, no entra al pipeline y no toca las conversaciones vivas.</p>
+
+            <div class="wa-thread empty" id="playThread"><span>Sin conversación de prueba todavía.</span></div>
+
+            <div class="wa-compose">
+              <input type="text" id="playInput" placeholder="Hola, ¿cuánto cuesta?" aria-label="Mensaje del cliente de prueba" />
+              <button class="btn-primary" id="playSend">Enviar</button>
+            </div>
+            <div class="levels" id="playScenarios" style="margin-top:10px"></div>
+
+            <div class="play-meta">
+              <span>Etapa <span class="mono" id="playState">—</span></span>
+              <span>Turnos <span class="mono" id="playTurns">—</span></span>
+              <span>Coste <span class="mono" id="playCost">—</span></span>
+              <button class="btn-ghost" id="playReset">Reiniciar</button>
+            </div>
+            <div class="ev-mini" id="playEvents"></div>
+          </div>
+        </div>
+
+        <div id="panelPrompt" hidden>
+          <div class="cred st-section">
+            <div class="eyebrow">Prompt Inspector</div>
+            <h2>Lo que recibe el modelo</h2>
+            <p class="hint">Generado, nunca escrito a mano. <span class="mono" id="promptBytes"></span></p>
+            <div class="prompt-box" id="promptBox">cargando…</div>
+            <div class="st-actions">
+              <button class="btn-ghost" id="copyBtn">Copiar</button>
+              <select id="promptState" class="btn-ghost" aria-label="Etapa del lead"></select>
+            </div>
+          </div>
+
+          <div class="cred st-section">
+            <div class="eyebrow">Motor</div>
+            <div class="head-with-seal"><h2>Estado real</h2><span class="seal">solo lectura</span></div>
+            <p class="hint">Valores con los que corre el sistema. Todavía no son editables desde aquí: se muestran para que sepas con qué estás jugando.</p>
+            <div class="locked" id="runtime"></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</div>
+<script src="/studio.js?v=1.3.0"></script>
+</body>
+</html>

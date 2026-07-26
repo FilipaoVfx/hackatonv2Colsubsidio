@@ -65,7 +65,7 @@ func (a *Analytics) List(ctx context.Context) ([]CallListItem, error) {
 func (a *Analytics) KPIs(ctx context.Context) (map[string]interface{}, error) {
 	row := a.pool.QueryRow(ctx, `
 		select count(*) filter (where channel='whatsapp'),
-		       count(*) filter (where lead_state in ('READY_FOR_ADVISOR','COMPLETED') and channel='whatsapp'),
+		       count(*) filter (where lead_state in ('CLOSING','READY_FOR_ADVISOR','COMPLETED') and channel='whatsapp'),
 		       count(*) filter (where lead_state='NURTURING' and channel='whatsapp'),
 		       coalesce(sum(tool_calls),0), coalesce(sum(tokens_in),0), coalesce(sum(tokens_out),0),
 		       coalesce(sum(cost_usd),0), coalesce(avg(nullif(avg_llm_latency_ms,0)),0),

@@ -13,6 +13,10 @@ import (
 // PromptInput carries everything a turn knows. Empty slices simply omit their
 // section, so the builder degrades gracefully (e.g. no RAG, no rules yet).
 type PromptInput struct {
+	// Config es la configuración del Agent Studio con la que se compone este
+	// prompt. Su cero-valor se sustituye por los defaults de fábrica, así que
+	// un llamador que no la conozca sigue obteniendo el agente de siempre.
+	Config      AgentConfig
 	State       LeadState
 	Memory      CustomerMemory
 	Products    []ProtegeProduct
@@ -24,10 +28,16 @@ type PromptInput struct {
 
 // BuildSystemPrompt assembles the modular system prompt.
 func BuildSystemPrompt(in PromptInput) string {
+	cfg := in.Config
+	if cfg.Persona.AgentName == "" { // cero-valor: agente de fábrica
+		cfg = DefaultConfig()
+	}
 	sections := []string{
-		sectionPersona(),
+		sectionPersona(cfg),
+		sectionObjectives(cfg),
 		sectionBusinessRules(in),
 		sectionConversationRules(),
+		sectionSafety(cfg),
 		sectionState(in),
 		sectionMemory(in),
 		sectionRetrieved(in),
@@ -42,9 +52,64 @@ func BuildSystemPrompt(in PromptInput) string {
 	return strings.Join(nonEmpty, "\n\n")
 }
 
-func sectionPersona() string {
-	return `## Persona
-Eres "Guardian", asesor comercial de seguros de Colsubsidio por WhatsApp. Hablas español colombiano, cálido, cercano y profesional. Mensajes CORTOS (2-4 frases), tono de chat. Tu meta es entender a la persona y conectarla con la protección que de verdad le sirve.`
+// sectionPersona compone la persona desde la configuración del Studio. Cada
+// línea sale de un vocabulario cerrado (agentconfig.go): el administrador mueve
+// sliders, no escribe instrucciones. El nombre es el único texto suyo que llega
+// al modelo, y viene validado (sin saltos de línea ni marcas de formato).
+func sectionPersona(cfg AgentConfig) string {
+	p := cfg.Persona
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Persona\nEres %q, asesor comercial de seguros de Colsubsidio por WhatsApp. "+
+		"Hablas español colombiano. Tu meta es entender a la persona y conectarla con la protección que de verdad le sirve.\n", p.AgentName)
+	fmt.Fprintf(&b, "- Registro: %s\n", formalityPhrase(p.Formality))
+	fmt.Fprintf(&b, "- Trato: %s\n", closenessPhrase(p.Closeness))
+	fmt.Fprintf(&b, "- Empatía: %s\n", empathyPhrase(p.Empathy))
+	fmt.Fprintf(&b, "- Estilo comercial: %s\n", persuasionPhrase(p.Persuasion))
+	fmt.Fprintf(&b, "- Iniciativa: %s\n", proactivityPhrase(p.Proactivity))
+	fmt.Fprintf(&b, "- Longitud: %s\n", lengthPhrase(p.Length))
+	fmt.Fprintf(&b, "- Emojis: %s\n", emojiPhrase(p.Emojis))
+	fmt.Fprintf(&b, "- Humor: %s\n", humorPhrase(p.Humor))
+	return b.String()
+}
+
+// sectionObjectives lista los objetivos comerciales EN ORDEN: el orden es la
+// prioridad y así se le dice al modelo, para que la tensión entre "resolver
+// dudas" y "cerrar venta" se resuelva de forma predecible.
+func sectionObjectives(cfg AgentConfig) string {
+	if len(cfg.Sales.Goals) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Objetivos por prioridad\n")
+	for i, goal := range cfg.Sales.Goals {
+		phrase, ok := salesGoalPhrases[goal]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(&b, "%d. %s\n", i+1, phrase)
+	}
+	b.WriteString("Cuando dos objetivos compitan, manda el que esté más arriba.\n")
+	return b.String()
+}
+
+// sectionSafety son los límites que el administrador marca en la consola. Se
+// SUMAN a las reglas de conversación, que no son configurables: prohibir
+// inventar productos no es una opción, es el contrato con la API.
+func sectionSafety(cfg AgentConfig) string {
+	if len(cfg.Safety.Forbid) == 0 && safetyLevelPhrase(cfg.Safety.Level) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Límites (no negociables)\n")
+	for _, key := range cfg.Safety.Forbid {
+		if phrase, ok := safetyForbidPhrases[key]; ok {
+			fmt.Fprintf(&b, "- Nunca vas a %s.\n", phrase)
+		}
+	}
+	if level := safetyLevelPhrase(cfg.Safety.Level); level != "" {
+		b.WriteString(level + "\n")
+	}
+	return b.String()
 }
 
 func sectionBusinessRules(in PromptInput) string {
@@ -74,7 +139,8 @@ func sectionConversationRules() string {
 - Máximo UNA pregunta por mensaje, y siempre conectada a lo que la persona acaba de contar. Jamás interrogatorio ni formulario.
 - No repitas preguntas sobre datos que ya conoces (sección Memoria).
 - Si la persona menciona un dato que YA está en Memoria pero con otro valor (por ejemplo dice sus ingresos reales y la memoria trae un estimado), extráelo igual como entity: lo que dice el cliente MANDA sobre el estimado.
-- Si la persona pregunta algo informativo, respóndelo con el Contexto documental; si no está ahí, dilo honestamente y ofrece que un asesor lo confirme.
+- Si la persona pregunta algo informativo, respóndelo con el Contexto documental; si no está ahí, dilo honestamente en vez de suponer.
+- TÚ eres el asesor: resuelves, cotizas y cierras la vinculación aquí mismo. No derives a otra persona ni prometas que "un asesor la contactará", salvo que ella pida hablar con un humano.
 - Detecta objeciones y respóndelas con empatía antes de avanzar.
 - Si es natural, invita UNA vez a compartir el número de afiliado Colsubsidio para personalizar mejor ("si tienes a mano tu número de afiliado, lo reviso y te ahorro preguntas"). Si la persona lo comparte, extráelo como entity con key "affiliate_serie". Nunca insistas si no lo tiene.`
 }
@@ -135,18 +201,39 @@ func sectionRetrieved(in PromptInput) string {
 	return b.String()
 }
 
+// actionHints explica qué significa cada next_action. Sin esto el modelo tenía
+// que adivinar: listar los nombres a secas bastaba mientras el vocabulario era
+// obvio (`ask`, `close`), pero `accept_offer` y `adjust_coverage` son las que
+// disparan el cierre y nunca se proponían. Es la diferencia entre un agente que
+// vende y uno que conversa para siempre.
+var actionHints = map[string]string{
+	ActionAsk:       "sigue descubriendo el perfil con naturalidad",
+	ActionAnswer:    "el cliente preguntó algo informativo y lo respondes",
+	ActionRecommend: "el cliente pide YA una recomendación",
+	ActionAdjust:    "el cliente quiere otro de los planes que le mostraste, comparar entre ellos, o añadir/quitar coberturas",
+	ActionAccept:    "el cliente acepta un plan o confirma la vinculación: úsala SIEMPRE que diga que sí, que lo quiere, o que confirma",
+	ActionHandoff:   "SOLO si el cliente pide explícitamente hablar con una persona",
+	ActionClose:     "SOLO si el cliente se despide o rechaza seguir",
+}
+
 func sectionOutput(in PromptInput) string {
 	actions := AllowedActions(in.State)
 	list := strings.Join(actions, " | ")
 	if list == "" {
 		list = ActionClose
 	}
+	var hints strings.Builder
+	for _, a := range actions {
+		if h := actionHints[a]; h != "" {
+			fmt.Fprintf(&hints, "\n  · %s: %s", a, h)
+		}
+	}
 	return fmt.Sprintf(`## Formato de salida (obligatorio)
 Responde SOLO el JSON del esquema. Campos:
 - intent: intención del cliente en este mensaje, UNA de [%s].
 - entities: hechos NUEVOS y confirmados que el cliente reveló, como pares {key, value, confidence}. Usa exactamente las variable_key de la guía cuando apliquen. Si dudas, confidence < 0.6.
 - confidence: confianza global de tu lectura del mensaje (0-1).
-- next_action: una de [%s]. Es una PROPUESTA; el sistema decide.
+- next_action: una de [%s]. Es una PROPUESTA; el sistema decide. Qué significa cada una aquí:%s
 - assistant_message: tu respuesta al cliente (texto natural de WhatsApp, sin JSON).`,
-		strings.Join(guardianIntents, ", "), list)
+		strings.Join(guardianIntents, ", "), list, hints.String())
 }

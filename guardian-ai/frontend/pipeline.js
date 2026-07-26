@@ -2,12 +2,13 @@
 // Read-only over /api/analytics/*. Does not touch the live demo or call flow.
 const $ = (id) => document.getElementById(id);
 
+// Fases del documento en la paleta institucional Colsubsidio (ver DESIGN.md).
 const PHASE_STYLE = [
-  { icon: "👋", bg: "#dbeafe", fg: "#1d4ed8", line: "#3b82f6" },
-  { icon: "🔍", bg: "#dcfce7", fg: "#15803d", line: "#22c55e" },
-  { icon: "⚠️", bg: "#ede9fe", fg: "#6d28d9", line: "#8b5cf6" },
-  { icon: "📋", bg: "#fef3c7", fg: "#b45309", line: "#f59e0b" },
-  { icon: "🤝", bg: "#ccfbf1", fg: "#0f766e", line: "#14b8a6" },
+  { icon: "👋", bg: "#E8F2FA", fg: "#0067B1", line: "#0067B1" },
+  { icon: "🔍", bg: "#E4F1EC", fg: "#0F6B4F", line: "#0F6B4F" },
+  { icon: "⚠️", bg: "#FBE9F0", fg: "#C53465", line: "#C53465" },
+  { icon: "📋", bg: "#FFF7CC", fg: "#8A6D00", line: "#FFD000" },
+  { icon: "🤝", bg: "#DCE9F3", fg: "#004A80", line: "#004A80" },
 ];
 const OUTCOME_CLASS = { "Interesado": "", "Cerrado": "", "Seguimiento": "warn", "No interesado": "bad" };
 
@@ -35,17 +36,19 @@ async function loadList() {
   $("callsBody").innerHTML = "";
   calls.forEach((c, i) => {
     const tr = document.createElement("tr");
+    tr.tabIndex = 0; tr.setAttribute("role", "button");
     const cls = c.score_overall >= 85 ? "s-hi" : c.score_overall >= 70 ? "s-mid" : "s-low";
-    tr.innerHTML = `<td><strong>${c.call_code}</strong></td>
+    tr.innerHTML = `<td class="serie-cell">${c.call_code}</td>
       <td>${c.customer}<div class="muted" style="font-size:11px">${c.phone}</div></td>
       <td>${fmtDate(c.started_at)}</td>
       <td>${mmss(c.duration_sec)}</td>
       <td>${channelLabel(c.channel, false)}</td>
       <td><span class="badge-outcome ${OUTCOME_CLASS[c.outcome] ?? "info"}">${c.outcome}</span>
-        ${c.lead_state ? `<div class="muted" style="font-size:10px;margin-top:2px">${c.lead_state}</div>` : ""}</td>
+        ${c.lead_state ? `<div class="muted" style="font-size:11px;margin-top:2px">${c.lead_state}</div>` : ""}</td>
       <td class="score-pill ${cls}">${c.score_overall}
-        ${c.cost_usd ? `<div class="muted" style="font-size:10px">$${c.cost_usd.toFixed(4)} · ${(c.tokens_in || 0) + (c.tokens_out || 0)} tok</div>` : ""}</td>`;
+        ${c.cost_usd ? `<div class="muted" style="font-size:11px">$${c.cost_usd.toFixed(4)} · ${(c.tokens_in || 0) + (c.tokens_out || 0)} tok</div>` : ""}</td>`;
     tr.addEventListener("click", () => openDetail(i));
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(i); } });
     $("callsBody").appendChild(tr);
   });
   if (calls.length) $("headDate").textContent = fmtDate(calls[0].started_at);
@@ -108,7 +111,9 @@ function renderPhases() {
         <span class="ph-name">${p.idx}. ${p.name}</span></div>
       <div class="ph-time">${mmss(p.start_sec)} - ${mmss(p.end_sec)}
         <span class="ph-pct">${p.pct_of_total}%</span></div>`;
+    el.tabIndex = 0; el.setAttribute("role", "button");
     el.addEventListener("click", () => selectPhase(i));
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectPhase(i); } });
     box.appendChild(el);
   });
 
@@ -175,13 +180,12 @@ function renderScore() {
   const s = current.score_overall;
   $("scoreVal").textContent = s;
   $("scoreLabel").textContent = current.score_label;
-  const arc = $("gArc"), len = 157;               // approx length of the semicircle path
-  arc.style.strokeDasharray = len;
-  arc.style.strokeDashoffset = len * (1 - s / 100);
+  // sello de calificación: la tinta cambia con el puntaje (verde / ámbar / rojo)
+  $("scoreSeal").className = "gauge" + (s >= 85 ? "" : s >= 70 ? " mid" : " low");
   $("dims").innerHTML = current.scores.map((d) => `
     <div class="dim"><div class="dim-top"><span>${d.label}</span><strong>${d.value}</strong></div>
       <div class="dim-bar"><div class="dim-fill" style="width:${d.value}%;
-        background:${d.value >= 85 ? "#22c55e" : d.value >= 70 ? "#f59e0b" : "#ef4444"}"></div></div></div>`).join("");
+        background:${d.value >= 85 ? "var(--seal-ok)" : d.value >= 70 ? "var(--amber-ink)" : "var(--alert)"}"></div></div></div>`).join("");
 }
 
 function renderProfile() {

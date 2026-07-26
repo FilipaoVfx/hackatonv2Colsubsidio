@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,6 +40,12 @@ type GuardianEngine struct {
 	catMu    sync.Mutex
 	products []ProtegeProduct
 	rules    []ProtegeRule
+
+	// cfg es la configuración publicada del Agent Studio. Se lee UNA vez al
+	// empezar cada turno y ese snapshot inmutable sirve todo el turno: publicar
+	// a mitad de una conversación cambia el puntero, nunca la configuración que
+	// el turno en curso ya está usando. Sin locks en la ruta caliente.
+	cfg atomic.Pointer[AgentConfig]
 }
 
 type guardianConv struct {
@@ -49,6 +56,16 @@ type guardianConv struct {
 	questions []ProtegeQuestion
 	recs      []string // rendered recommendations shown in MATCHING
 	recTries  int      // intentos de get_recommendations en MATCHING
+	stall     int      // turnos seguidos sin descubrir variable nueva
+
+	// Cierre (ver closing.go): las opciones que la API rankeó, la elegida, las
+	// coberturas que el cliente añadió y la cotización vigente. La cotización
+	// se guarda para que la vinculación se emita contra el precio que el
+	// cliente YA vio, nunca contra uno recalculado por detrás.
+	options []recOption
+	picked  int
+	addons  map[string]bool
+	quote   *ProtegeQuote
 }
 
 func NewGuardianEngine(bus *EventBus, api *ColsubsidioClient, llm GuardianLLM, tools *Tools, sessions *WhatsAppSessions, rag *RAG, affiliates *Affiliates) *GuardianEngine {
@@ -63,7 +80,34 @@ func (e *GuardianEngine) Enabled() bool {
 	return e != nil && e.api != nil && e.api.Enabled() && e.llm != nil
 }
 
-const guardianFallbackMsg = "Estoy validando tu información, dame un momento por favor. Si prefieres, un asesor puede continuar contigo."
+// SetConfig publica una configuración del Agent Studio. La copia se guarda
+// completa y no vuelve a mutarse: los turnos que ya empezaron terminan con la
+// anterior, el siguiente turno de CUALQUIER conversación usa la nueva.
+func (e *GuardianEngine) SetConfig(cfg AgentConfig) {
+	if e == nil {
+		return
+	}
+	snapshot := cfg.Clone()
+	e.cfg.Store(&snapshot)
+}
+
+// Config devuelve el snapshot vivo. Nunca nil: sin configuración publicada, el
+// motor se comporta con los defaults de fábrica.
+func (e *GuardianEngine) Config() AgentConfig {
+	if e == nil {
+		return DefaultConfig()
+	}
+	if cfg := e.cfg.Load(); cfg != nil {
+		return *cfg
+	}
+	return DefaultConfig()
+}
+
+// ragTopK: cuántos fragmentos de documentación entran al prompt cuando el
+// cliente pregunta algo informativo. El Agent Studio lo muestra en solo lectura.
+const ragTopK = 2
+
+const guardianFallbackMsg = "Estoy validando tu información, dame un momento por favor y seguimos."
 
 // StartContact opens an outbound Guardian conversation. When greet is true a
 // static opener is sent (24h-window template rule: the FIRST outbound message
@@ -172,6 +216,11 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 		return fmt.Errorf("guardian: unknown conversation %s", convID)
 	}
 
+	// Snapshot de configuración del turno: se lee UNA vez y no se vuelve a
+	// consultar. Si alguien publica en el Studio mientras este turno corre, el
+	// cambio entra en el siguiente — nunca a mitad de una respuesta.
+	cfg := e.Config()
+
 	e.bus.Publish(convID, MESSAGE_RECEIVED, "whatsapp_adapter", map[string]interface{}{"is_final": true})
 	e.bus.Publish(convID, TRANSCRIPT_UPDATED, "whatsapp_adapter", map[string]interface{}{
 		"role": "user", "text": text, "is_final": true,
@@ -204,7 +253,7 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	products, rules := e.catalog(ctx, convID)
 	var retrieved []Chunk
 	if e.rag.Enabled() && looksLikeQuestion(text) {
-		retrieved = e.rag.Retrieve(ctx, text, 2)
+		retrieved = e.rag.Retrieve(ctx, text, ragTopK)
 		if len(retrieved) > 0 {
 			refs := make([]map[string]string, len(retrieved))
 			for i, c := range retrieved {
@@ -218,20 +267,25 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 
 	// 3. Modular prompt + structured LLM turn.
 	prompt := BuildSystemPrompt(PromptInput{
-		State: st.state, Memory: memory, Products: products, Rules: rules,
+		Config: cfg,
+		State:  st.state, Memory: memory, Products: products, Rules: rules,
 		MissingVars: MissingQuestions(st.state, st.questions, known),
 		Retrieved:   retrieved, Recs: st.recs,
 	})
 	st.history = trimHistory(append(st.history, oaMessage{Role: "user", Content: text}))
 
-	e.bus.Publish(convID, LLM_REQUESTED, "guardian_engine", map[string]interface{}{"strategy": string(st.state)})
+	e.bus.Publish(convID, LLM_REQUESTED, "guardian_engine", map[string]interface{}{
+		"strategy": string(st.state), "config_version": cfg.Version,
+	})
 	d, err := e.llm.DecideGuardian(ctx, prompt, st.history)
 	if err != nil {
 		e.bus.Publish(convID, ERROR_OCCURRED, "llm_gateway", map[string]interface{}{
 			"source": "llm_gateway", "code": "llm_error", "message": err.Error(), "recoverable": true,
 		})
 		e.sendAgent(convID, phone, guardianFallbackMsg)
-		e.turnCompleted(convID, st, started, "", 0, nil, nil, toolCalls, err)
+		e.turnCompleted(convID, st, started, turnOutcome{
+			toolCalls: toolCalls, configVersion: cfg.Version, err: err,
+		})
 		return nil // webhook stays 200; error already registered
 	}
 	e.bus.Publish(convID, LLM_RESPONSE, "llm_gateway", map[string]interface{}{
@@ -248,6 +302,9 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 
 	// 4. Immediate persistence of confirmed facts (spec §4 fase 3).
 	newVars, rejectedVars := e.persistEntities(ctx, convID, st, d.Entities, known, runTool)
+	// Antiatasco: un turno que no descubre nada cuenta; con maxStallTurns
+	// seguidos, maybeAdvance camina la flecha igual (ver maxStallTurns).
+	st.noteProgress(len(newVars))
 	// Cliente confirmó su número de afiliado → lookup REAL en el maestro 360.
 	e.applySerie(ctx, convID, st, d.Entities)
 
@@ -278,17 +335,26 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 	}
 	e.sendAgentWithButtons(convID, phone, reply, buttons)
 
-	// El intent es un enum cerrado del esquema; solo escala si la etapa admite
-	// handoff (hoy todas menos las terminales).
-	wantsAdvisor := action == ActionHandoff ||
-		(isAcceptIntent(d.Intent) && ActionAllowed(st.state, ActionHandoff))
+	// El handoff dejó de ser el cierre por defecto: solo escala la ACCIÓN
+	// explícita. El intent no basta — en pruebas reales el modelo etiquetó
+	// "cuéntame cuál me recomiendas" como request_advisor y eso terminaba la
+	// conversación derivando a un humano que nadie había pedido.
+	wantsAdvisor := action == ActionHandoff
+	// La aceptación mueve el cierre estando en MATCHING/CLOSING; en etapas
+	// anteriores un "sí" es solo continuidad de la conversación.
+	accepts := (action == ActionAccept || isAcceptIntent(d.Intent)) &&
+		(st.state == StateMatching || st.state == StateClosing)
 	switch {
-	case action == ActionClose:
+	case action == ActionClose && closeCorroborated(st.state, d.Intent):
 		e.finishNurturing(ctx, convID, phone, "el cliente cerró la conversación")
 	case wantsAdvisor:
 		// Pidió un humano: se camina hasta READY por flechas LEGALES, sin
 		// inventar una recomendación con un perfil a medias.
 		e.escalate(ctx, convID, phone, st, known, runTool)
+	case accepts:
+		e.advanceClosing(ctx, convID, phone, st, known, text, runTool)
+	case action == ActionAdjust && (st.state == StateMatching || st.state == StateClosing):
+		e.adjustOffer(ctx, convID, phone, st, text)
 	case action == ActionRecommend:
 		e.fastForward(ctx, convID, phone, st, known, runTool)
 	case st.state == StateMatching && len(st.recs) == 0:
@@ -299,7 +365,11 @@ func (e *GuardianEngine) turn(ctx context.Context, convID, phone, text string) e
 		e.maybeAdvance(ctx, convID, phone, st, known, runTool)
 	}
 
-	e.turnCompleted(convID, st, started, d.Intent, d.Confidence, newVars, rejectedVars, toolCalls, nil)
+	e.turnCompleted(convID, st, started, turnOutcome{
+		intent: d.Intent, confidence: d.Confidence,
+		newVars: newVars, rejectedVars: rejectedVars,
+		toolCalls: toolCalls, configVersion: cfg.Version,
+	})
 	return nil
 }
 
@@ -327,6 +397,11 @@ func (e *GuardianEngine) preload(ctx context.Context, callID, userID string, af 
 	}
 }
 
+// entityConfidence es el umbral a partir del cual un hecho extraído por el LLM
+// se considera CONFIRMADO y se persiste en el perfil. No es configurable desde
+// el Agent Studio: bajarlo llenaría la memoria estratégica de suposiciones.
+const entityConfidence = 0.6
+
 // serieKeys son las claves de entity con las que el LLM reporta el número de
 // afiliado/cédula que el cliente comparte en la conversación.
 var serieKeys = map[string]bool{"affiliate_serie": true, "numero_afiliado": true, "cedula": true, "document_number": true}
@@ -338,7 +413,7 @@ func (e *GuardianEngine) applySerie(ctx context.Context, callID string, st *guar
 		return
 	}
 	for _, ent := range entities {
-		if !serieKeys[strings.ToLower(ent.Key)] || ent.Confidence < 0.6 {
+		if !serieKeys[strings.ToLower(ent.Key)] || ent.Confidence < entityConfidence {
 			continue
 		}
 		if af, ok := e.affiliates.BySerie(fmt.Sprint(ent.Value)); ok {
@@ -381,7 +456,7 @@ func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st 
 	var batch []VariableValue
 	var keys []string
 	for _, ent := range entities {
-		if ent.Key == "" || ent.Confidence < 0.6 {
+		if ent.Key == "" || ent.Confidence < entityConfidence {
 			continue
 		}
 		if !accepted[strings.ToLower(ent.Key)] {
@@ -409,11 +484,66 @@ func (e *GuardianEngine) persistEntities(ctx context.Context, convID string, st 
 	return keys, rejected
 }
 
-// maybeAdvance walks ONE legal arrow when the current stage is complete.
+// minProfileVars es el mínimo de variables del catálogo con las que se acepta
+// recomendar cuando el cliente lo pide sin haber contado todo. Por debajo de
+// eso no es acelerar el recorrido, es inventarse el match.
+const minProfileVars = 3
+
+// maxStallTurns: turnos seguidos en la MISMA etapa de descubrimiento sin
+// descubrir ni una variable nueva. Al superarlo el motor avanza con lo que
+// tiene. Sin este tope, una variable que el modelo no logra extraer (pasó con
+// `num_dependents` cuando el cliente dice "dos hijos") deja la conversación
+// preguntando lo mismo para siempre y la venta no se cierra nunca.
+const maxStallTurns = 3
+
+// knownProfileVars cuenta cuántas variables del catálogo de la API ya se
+// descubrieron (las del perfil, no las financieras).
+func knownProfileVars(questions []ProtegeQuestion, known map[string]interface{}) int {
+	n := 0
+	for _, q := range questions {
+		if isFinancialVar(q.VariableKey) {
+			continue
+		}
+		if _, have := known[q.VariableKey]; have {
+			n++
+		}
+	}
+	return n
+}
+
+// noteProgress lleva la cuenta de turnos sin descubrimiento en la etapa actual
+// y reporta si la conversación está estancada.
+func (st *guardianConv) noteProgress(newVars int) bool {
+	if st.state != StateProfile && st.state != StateFinancial {
+		st.stall = 0
+		return false
+	}
+	if newVars > 0 {
+		st.stall = 0
+		return false
+	}
+	st.stall++
+	return st.stall >= maxStallTurns
+}
+
+// maybeAdvance walks ONE legal arrow when the current stage is complete, o
+// cuando la etapa se atascó (ver maxStallTurns).
 func (e *GuardianEngine) maybeAdvance(ctx context.Context, convID, phone string, st *guardianConv,
 	known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) {
 
 	if !StageComplete(st.state, st.questions, known) {
+		if st.stall < maxStallTurns {
+			return
+		}
+		// Atascado: se avanza con lo descubierto y queda registrado por qué.
+		st.stall = 0
+		switch st.state {
+		case StateProfile:
+			e.transition(convID, st, StateFinancial, fmt.Sprintf("sin descubrimiento nuevo en %d turnos", maxStallTurns))
+		case StateFinancial:
+			e.transition(convID, st, StateMatching, fmt.Sprintf("sin descubrimiento nuevo en %d turnos", maxStallTurns))
+			e.enterMatching(ctx, convID, phone, st, runTool)
+		}
 		return
 	}
 	switch st.state {
@@ -426,13 +556,17 @@ func (e *GuardianEngine) maybeAdvance(ctx context.Context, convID, phone string,
 }
 
 // fastForward honors an explicit customer request for a recommendation by
-// walking the LEGAL arrows to matching (no skipped states, spec §3.3). Exige
-// el perfil descubierto: recomendar sobre un perfil vacío no es acelerar el
-// recorrido, es inventarse el match. Si aún falta, se sigue descubriendo.
+// walking the LEGAL arrows to matching (no skipped states, spec §3.3).
+//
+// Ya no exige la etapa COMPLETA: pedir la recomendación y que el agente siga
+// preguntando es la forma más rápida de perder la venta. Basta un perfil
+// mínimo (minProfileVars); con menos que eso se sigue descubriendo, porque
+// recomendar sobre un perfil vacío sí sería inventarse el match.
 func (e *GuardianEngine) fastForward(ctx context.Context, convID, phone string, st *guardianConv,
 	known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) {
 
-	if st.state == StateProfile && !StageComplete(StateProfile, st.questions, known) {
+	if st.state == StateProfile && !StageComplete(StateProfile, st.questions, known) &&
+		knownProfileVars(st.questions, known) < minProfileVars {
 		e.maybeAdvance(ctx, convID, phone, st, known, runTool)
 		return
 	}
@@ -458,7 +592,7 @@ func (e *GuardianEngine) escalate(ctx context.Context, convID, phone string, st 
 	if st.state == StateFinancial {
 		e.transition(convID, st, StateMatching, "el cliente pidió un asesor")
 	}
-	if st.state != StateMatching {
+	if st.state != StateMatching && st.state != StateClosing {
 		return // etapa terminal o no escalable: nada que hacer
 	}
 	e.finishReady(ctx, convID, phone, st, known, runTool)
@@ -479,7 +613,7 @@ func (e *GuardianEngine) enterMatching(ctx context.Context, convID, phone string
 	if res.Err != nil {
 		if st.recTries >= maxRecAttempts {
 			e.sendAgent(convID, phone, "No logro generar tu recomendación en este momento. "+
-				"Un asesor de Colsubsidio revisará tu caso y te contactará 🙏")
+				"Escríbeme de nuevo en un rato y la retomamos desde donde vamos 🙏")
 			e.finishNurturing(ctx, convID, phone, "motor de recomendaciones no disponible")
 			return
 		}
@@ -487,30 +621,181 @@ func (e *GuardianEngine) enterMatching(ctx context.Context, convID, phone string
 		return
 	}
 	recs, _ := res.Data.([]interface{})
-	st.recs = nil
+	st.recs, st.options, st.picked, st.addons, st.quote = nil, nil, -1, nil, nil
 	lines := []string{"Con base en lo que me contaste, el sistema me sugiere para ti:"}
 	for _, r := range recs {
-		name, reason := recFields(r)
-		if name == "" {
+		opt, ok := parseRecommendation(r)
+		if !ok {
 			continue
 		}
 		e.bus.Publish(convID, RECOMMENDATION_GENERATED, "colsubsidio_api", map[string]interface{}{
-			"product_name": name, "reasoning": reason, "product_id": "", "confidence": 0,
+			"product_name": opt.Name, "reasoning": opt.Reason, "product_id": opt.ProductID, "confidence": 0,
 		})
-		entry := name
-		if reason != "" {
-			entry += " — " + reason
+		st.options = append(st.options, opt)
+		st.recs = append(st.recs, opt.Line())
+		entry := "• " + opt.Line()
+		if opt.BasePrice > 0 {
+			entry += fmt.Sprintf(" (desde %s/mes)", money(opt.BasePrice))
 		}
-		st.recs = append(st.recs, entry)
-		lines = append(lines, "• "+entry)
+		lines = append(lines, entry)
 	}
 	if len(st.recs) == 0 {
-		e.sendAgent(convID, phone, "Con tu perfil aún no tengo una recomendación clara; un asesor revisará tu caso y te contactará.")
+		e.sendAgent(convID, phone, "Con tu perfil aún no tengo una recomendación clara. Cuéntame un poco más y lo intentamos de nuevo.")
 		e.finishNurturing(ctx, convID, phone, "sin recomendaciones para el perfil")
 		return
 	}
-	lines = append(lines, "\n¿Quieres que un asesor te ayude a formalizar alguna? 😊")
+	// El cierre lo hace el agente, no un asesor: se invita a comparar, ajustar
+	// o contratar aquí mismo.
+	lines = append(lines, "", "Puedo compararlas, ajustar coberturas o dejarte asegurado hoy mismo. ¿Cuál te sirve más? 😊")
 	e.sendAgent(convID, phone, strings.Join(lines, "\n"))
+}
+
+// closeCorroborated exige que, en la recta final, la ACCIÓN de cerrar venga
+// respaldada por la INTENCIÓN. Cerrar es irreversible (termina la conversación)
+// y en pruebas reales el modelo etiquetó "me sirve ese, súmale la cobertura X"
+// como close: un cliente que estaba comprando se quedaba sin comprar. Fuera de
+// MATCHING/CLOSING se respeta la acción tal cual: ahí cerrar no rompe nada.
+func closeCorroborated(state LeadState, intent string) bool {
+	if state != StateMatching && state != StateClosing {
+		return true
+	}
+	return intent == "goodbye" || intent == "reject"
+}
+
+// currentOption devuelve la opción elegida (por defecto la de mayor score).
+func (st *guardianConv) currentOption() (recOption, bool) {
+	if st.picked >= 0 && st.picked < len(st.options) {
+		return st.options[st.picked], true
+	}
+	if len(st.options) > 0 {
+		return st.options[0], true
+	}
+	return recOption{}, false
+}
+
+// addonKeys son las coberturas opcionales añadidas, en el orden del catálogo.
+func (st *guardianConv) addonKeys(opt recOption) []string {
+	var out []string
+	for _, c := range opt.Optional() {
+		if st.addons[c.Key] {
+			out = append(out, c.Key)
+		}
+	}
+	return out
+}
+
+// adjustOffer atiende "quiero la otra" / "añádeme X": vuelve a cotizar con la
+// elección y las coberturas que el cliente nombró. La selección la hace el
+// MOTOR sobre el catálogo de la API (closing.go), no el LLM.
+func (e *GuardianEngine) adjustOffer(ctx context.Context, convID, phone string, st *guardianConv, text string) {
+	if len(st.options) == 0 {
+		return
+	}
+	// "Compárame las dos" no es elegir: responder con la cotización de la
+	// primera era contestar otra pregunta. Se comparan y se sigue en MATCHING.
+	if wantsComparison(text) {
+		e.sendAgent(convID, phone, comparisonMessage(st.options))
+		return
+	}
+	if i := pickOption(st.options, text); i >= 0 {
+		st.picked = i
+	}
+	opt, _ := st.currentOption()
+	if st.addons == nil {
+		st.addons = map[string]bool{}
+	}
+	for _, k := range pickCoverages(opt, text) {
+		st.addons[k] = true
+	}
+	e.quoteAndAsk(ctx, convID, phone, st, "el cliente ajustó su plan")
+}
+
+// advanceClosing es el cierre en dos pasos: la primera aceptación cotiza y pide
+// confirmación explícita; la segunda emite la vinculación. Nunca se contrata
+// con un solo "sí" ambiguo.
+func (e *GuardianEngine) advanceClosing(ctx context.Context, convID, phone string, st *guardianConv,
+	known map[string]interface{}, text string, runTool func(string, map[string]interface{}) ToolResult) {
+
+	if len(st.options) == 0 {
+		return
+	}
+	if st.state == StateMatching {
+		if i := pickOption(st.options, text); i >= 0 {
+			st.picked = i
+		}
+		if st.addons == nil {
+			st.addons = map[string]bool{}
+		}
+		opt, _ := st.currentOption()
+		for _, k := range pickCoverages(opt, text) {
+			st.addons[k] = true
+		}
+		e.transition(convID, st, StateClosing, "el cliente aceptó una recomendación")
+		e.quoteAndAsk(ctx, convID, phone, st, "cotización para confirmar")
+		return
+	}
+	// Ya estaba en CLOSING con una cotización mostrada: esto es la confirmación.
+	if st.quote == nil {
+		e.quoteAndAsk(ctx, convID, phone, st, "no había cotización vigente")
+		return
+	}
+	e.finishEnrollment(ctx, convID, phone, st, known, runTool)
+}
+
+// quoteAndAsk cotiza contra la API y muestra el resumen pidiendo confirmación.
+// Si la cotización falla, se escala a un asesor: es la ÚNICA vía honesta, pero
+// como excepción y no como cierre por defecto.
+func (e *GuardianEngine) quoteAndAsk(ctx context.Context, convID, phone string, st *guardianConv, reason string) {
+	opt, ok := st.currentOption()
+	if !ok || opt.ProductID == "" {
+		return
+	}
+	q, err := e.api.CreateQuote(ctx, st.userID, opt.ProductID, st.addonKeys(opt))
+	if err != nil {
+		e.bus.Publish(convID, ERROR_OCCURRED, "colsubsidio_api", map[string]interface{}{
+			"source": "colsubsidio_api", "code": "quote_failed", "message": err.Error(), "recoverable": true,
+		})
+		e.sendAgent(convID, phone, "No logro armar tu cotización en este momento. "+
+			"Escríbeme en un momento y la armamos; si prefieres no esperar, dime y lo pasa un asesor 🙏")
+		e.finishNurturing(ctx, convID, phone, "cotización no disponible")
+		return
+	}
+	st.quote = q
+	e.bus.Publish(convID, QUOTE_CREATED, "colsubsidio_api", map[string]interface{}{
+		"quote_id": q.ID, "product_id": q.ProductID, "product_name": q.ProductName,
+		"base_price": q.BasePrice, "monthly_price": q.MonthlyPrice, "reason": reason,
+	})
+	e.sendAgent(convID, phone, quoteMessage(q))
+}
+
+// finishEnrollment emite la vinculación y cierra la conversación con la persona
+// ASEGURADA: radicado, resumen y enlace al último paso de adquisición.
+func (e *GuardianEngine) finishEnrollment(ctx context.Context, convID, phone string, st *guardianConv,
+	known map[string]interface{}, runTool func(string, map[string]interface{}) ToolResult) {
+
+	enr, err := e.api.CreateEnrollment(ctx, st.userID, st.quote.ID)
+	if err != nil {
+		e.bus.Publish(convID, ERROR_OCCURRED, "colsubsidio_api", map[string]interface{}{
+			"source": "colsubsidio_api", "code": "enrollment_failed", "message": err.Error(), "recoverable": true,
+		})
+		e.sendAgent(convID, phone, "Tuve un problema al emitir tu solicitud. "+
+			"No quiero dejarte a medias: un asesor de Colsubsidio la formaliza y te confirma 🙏")
+		e.escalate(ctx, convID, phone, st, known, runTool)
+		return
+	}
+	e.bus.Publish(convID, ENROLLMENT_CREATED, "colsubsidio_api", map[string]interface{}{
+		"enrollment_id": enr.ID, "application_number": enr.ApplicationNumber,
+		"product_id": enr.ProductID, "product_name": enr.ProductName,
+		"monthly_price": enr.MonthlyPrice, "status": enr.Status, "next_step_url": enr.NextStepURL,
+	})
+	runTool("complete_conversation", map[string]interface{}{"conversation_id": convID, "limit": 3})
+	e.sendAgent(convID, phone, enrollmentMessage(enr))
+	e.bus.Publish(convID, SUMMARY_GENERATED, "guardian_engine", map[string]interface{}{
+		"summary": enr.Summary,
+	})
+	e.transition(convID, st, StateCompleted, "vinculación confirmada")
+	e.bus.Publish(convID, CALL_ENDED, "guardian_engine", map[string]interface{}{"reason": "enrolled"})
+	e.close(convID)
 }
 
 // finishReady closes the flow as READY_FOR_ADVISOR and emits the LEAD_READY
@@ -542,7 +827,7 @@ func (e *GuardianEngine) finishNurturing(ctx context.Context, convID, phone, rea
 	if st == nil {
 		return
 	}
-	if st.state == StateMatching || st.state == StateReady {
+	if st.state == StateMatching || st.state == StateClosing || st.state == StateReady {
 		e.transition(convID, st, StateNurturing, reason)
 	} else {
 		// legal path: current → ... only NURTURING reachable from MATCHING/READY;
@@ -551,7 +836,7 @@ func (e *GuardianEngine) finishNurturing(ctx context.Context, convID, phone, rea
 			"from": string(st.state), "to": string(st.state), "reason": "cierre anticipado: " + reason,
 		})
 	}
-	e.sendAgent(convID, phone, "¡Gracias por tu tiempo! Te compartiré información útil de vez en cuando y un asesor quedará atento a lo que necesites 🌟")
+	e.sendAgent(convID, phone, "¡Gracias por tu tiempo! Te compartiré información útil de vez en cuando y, cuando quieras retomar tu protección, la cerramos aquí mismo 🌟")
 	if st.state == StateNurturing {
 		e.transition(convID, st, StateCompleted, "nutrición programada")
 	}
@@ -607,18 +892,31 @@ func (e *GuardianEngine) sendAgentWithButtons(convID, phone, text string, button
 	e.mu.Unlock()
 }
 
-func (e *GuardianEngine) turnCompleted(convID string, st *guardianConv, started time.Time,
-	intent string, confidence float64, newVars, rejectedVars, toolCalls []string, err error) {
+// turnOutcome agrupa lo que produjo un turno: intención leída, variables
+// escritas, variables descartadas, tools usadas y la versión de configuración
+// con la que se comportó el agente. Nació cuando la lista de parámetros de
+// turnCompleted dejó de leerse de un vistazo.
+type turnOutcome struct {
+	intent        string
+	confidence    float64
+	newVars       []string
+	rejectedVars  []string
+	toolCalls     []string
+	configVersion int
+	err           error
+}
 
+func (e *GuardianEngine) turnCompleted(convID string, st *guardianConv, started time.Time, out turnOutcome) {
 	payload := map[string]interface{}{
 		"conversation_id": convID, "user_id": st.userID, "state": string(st.state),
-		"intent": intent, "confidence": confidence,
+		"intent": out.intent, "confidence": out.confidence,
 		"latency_ms_total": time.Since(started).Milliseconds(),
-		"tool_calls":       toolCalls, "new_variables": newVars,
-		"rejected_variables": rejectedVars, "error": nil,
+		"tool_calls":       out.toolCalls, "new_variables": out.newVars,
+		"rejected_variables": out.rejectedVars,
+		"config_version":     out.configVersion, "error": nil,
 	}
-	if err != nil {
-		payload["error"] = err.Error()
+	if out.err != nil {
+		payload["error"] = out.err.Error()
 	}
 	e.bus.Publish(convID, TURN_COMPLETED, "guardian_engine", payload)
 }
@@ -668,6 +966,20 @@ func (e *GuardianEngine) Sweep() int {
 		}
 	}
 	return n
+}
+
+// State devuelve la etapa viva de una conversación (solo lectura). La usa el
+// Playground del Studio para mostrar en qué punto del embudo va la prueba.
+func (e *GuardianEngine) State(convID string) LeadState {
+	if e == nil {
+		return ""
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if st := e.convs[convID]; st != nil {
+		return st.state
+	}
+	return ""
 }
 
 func (e *GuardianEngine) close(convID string) {

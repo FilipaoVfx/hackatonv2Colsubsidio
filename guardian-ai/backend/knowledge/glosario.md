@@ -4,7 +4,7 @@ La prima es el valor que pagas periódicamente (en estos planes, cada mes) por t
 
 # Cobertura
 
-La cobertura es el conjunto de situaciones que el seguro protege. Cada producto tiene coberturas distintas; el asesor entrega el detalle completo (clausulado) al formalizar.
+La cobertura es el conjunto de situaciones que el seguro protege. Cada producto trae unas coberturas incluidas y otras opcionales que puedes añadir; te las detallo aquí mismo con su valor antes de que confirmes. El clausulado completo llega con tu solicitud.
 
 # Beneficiario
 
@@ -16,4 +16,4 @@ Entidad como Colsubsidio que administra beneficios sociales (subsidios, recreaci
 
 # Póliza
 
-El contrato del seguro. Solo existe cuando el asesor la formaliza contigo; este chat prepara tu perfil y recomendación, no emite pólizas.
+El contrato del seguro. En este chat queda emitida tu solicitud de vinculación con radicado y resumen de coberturas; la póliza se expide al confirmarse el primer pago en el enlace oficial.

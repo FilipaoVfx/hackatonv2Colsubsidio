@@ -176,6 +176,7 @@ async function startConversation() {
   const r = await fetch("/api/calls/start", { method: "POST" });
   if (!r.ok) { alert("Motor LLM no configurado (falta OPENAI_API_KEY)"); return; }
   callID = (await r.json()).call_id;
+  $("endBtn").disabled = false;
   $("msgInput").focus();
 }
 
@@ -203,6 +204,7 @@ $("endBtn").addEventListener("click", async () => {
     if (r.ok) {
       addMsg("agent", "<em>Llamada finalizada. Disponible en <a href='/pipeline'>Pipeline de Llamadas</a>.</em>");
       callID = null;
+      $("endBtn").disabled = true;
     }
   } finally { $("endBtn").disabled = false; }
 });

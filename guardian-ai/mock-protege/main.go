@@ -120,69 +120,17 @@ type Recommendation struct {
 	BasePrice float64 `json:"base_price"`
 	Score     float64 `json:"score"`
 	Reason    string  `json:"reason"`
+	// Coverages viaja con la recomendación para que el agente pueda explicar
+	// qué incluye y qué se puede añadir SIN inventar coberturas.
+	Coverages []Coverage `json:"coverages"`
 }
 
 // ---------------------------------------------------------------------------
-// Catálogo: datos REALES capturados de GET /api/v1/products (2026-07-24)
+// Catálogo: `products` y `productIDs` viven en catalog.go, GENERADO desde
+// sourceapi.json (portafolio real publicado de Colsubsidio, 21 productos).
+// Se regenera con scripts/gen_catalog.py; no se edita a mano. Las primas son
+// estimaciones de demo y cada producto lo declara en metadata_json.price_source.
 // ---------------------------------------------------------------------------
-
-const (
-	pidHogar     = "0e92218c-3d75-4024-aed2-7ea1cc5f0950"
-	pidMascota   = "a49e8875-f8d4-43f3-a9f0-9a144b41a0ff"
-	pidAccidente = "759f18ae-a795-449a-b376-c7a7ba6111d4"
-	pidVida      = "71d3c72e-47ab-4941-8223-73e14bfa82b9"
-)
-
-var products = []map[string]interface{}{
-	{
-		"code": "HOGAR_PROTEGIDO_TEST", "name": "Seguro Hogar Protegido",
-		"description": "Producto de prueba para personas interesadas en proteger su vivienda y los bienes contenidos en ella.",
-		"category": "hogar", "active": true, "base_price": 32000.0,
-		"metadata_json": map[string]interface{}{
-			"test_product": true, "target_profile": "Propietarios o arrendatarios interesados en protección del hogar",
-			"features":   []string{"Protección de vivienda", "Protección de bienes del hogar"},
-			"disclaimer": "Producto creado únicamente para pruebas del motor de recomendaciones.",
-		},
-		"id": pidHogar,
-		"created_at": "2026-07-24T02:21:06.185867Z", "updated_at": "2026-07-24T02:21:06.185867Z",
-	},
-	{
-		"code": "MASCOTA_PROTEGIDA_TEST", "name": "Seguro Mascota Protegida",
-		"description": "Producto de prueba dirigido a personas que tienen mascota y desean contar con respaldo para su cuidado.",
-		"category": "mascotas", "active": true, "base_price": 22000.0,
-		"metadata_json": map[string]interface{}{
-			"test_product": true, "target_profile": "Personas con perros o gatos",
-			"features":   []string{"Respaldo para el cuidado de mascotas", "Orientado a propietarios de mascotas"},
-			"disclaimer": "Producto creado únicamente para pruebas del motor de recomendaciones.",
-		},
-		"id": pidMascota,
-		"created_at": "2026-07-24T02:21:19.415377Z", "updated_at": "2026-07-24T02:21:19.415377Z",
-	},
-	{
-		"code": "ACCIDENTES_PERSONALES_TEST", "name": "Seguro de Accidentes Personales",
-		"description": "Producto de prueba para personas que se desplazan con frecuencia y desean protección frente a accidentes personales.",
-		"category": "accidentes", "active": true, "base_price": 18000.0,
-		"metadata_json": map[string]interface{}{
-			"test_product": true, "target_profile": "Personas con desplazamientos frecuentes",
-			"features":   []string{"Protección frente a accidentes", "Orientado a personas activas"},
-			"disclaimer": "Producto creado únicamente para pruebas del motor de recomendaciones.",
-		},
-		"id": pidAccidente,
-		"created_at": "2026-07-24T02:20:52.086996Z", "updated_at": "2026-07-24T02:20:52.086996Z",
-	},
-	{
-		"code": "VIDA_FAMILIAR_TEST", "name": "Seguro de Vida Familiar",
-		"description": "Producto de prueba orientado a personas que desean brindar respaldo económico a su familia ante eventos inesperados.",
-		"category": "vida", "active": true, "base_price": 25000.0,
-		"metadata_json": map[string]interface{}{
-			"test_product": true, "target_profile": "Personas con familiares o dependientes económicos",
-			"features":   []string{"Protección económica familiar", "Orientado a personas con dependientes"},
-			"disclaimer": "Producto creado únicamente para pruebas del motor de recomendaciones.",
-		},
-		"id": pidVida,
-		"created_at": "2026-07-24T02:20:42.767413Z", "updated_at": "2026-07-24T02:20:42.767413Z",
-	},
-}
 
 func productByID(id string) map[string]interface{} {
 	for _, p := range products {
@@ -202,48 +150,82 @@ var questionsCatalog = []Question{
 		FieldType: "text", Required: true, OrderIndex: 1, Active: true,
 		Placeholder: "Ej: Ana María Rojas", Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
 
+	// La edad afina varias reglas (cáncer, exequial, bicicletas) pero NO es
+	// obligatoria: exigirla dejaba la conversación atascada cuando la persona
+	// contaba todo lo demás y nunca su edad. Si aparece, las reglas la usan.
 	{ID: "q_age", VariableKey: "age", Text: "¿Qué edad tienes?",
-		FieldType: "number", Required: true, OrderIndex: 2, Active: true,
+		FieldType: "number", Required: false, OrderIndex: 2, Active: true,
 		HelpText: "En años cumplidos", Placeholder: "Ej: 34",
 		Validation: map[string]interface{}{"min": 18.0, "max": 100.0}, Options: []interface{}{}, Conditions: []Condition{}},
 
+	// Estado civil: junto con los dependientes es lo que separa el perfil
+	// "soltero sin hijos" del perfil "casado con tres hijos".
+	{ID: "q_marital", VariableKey: "marital_status", Text: "¿Cuál es tu estado civil?",
+		FieldType: "select", Required: true, OrderIndex: 3, Active: true,
+		Validation: map[string]interface{}{},
+		Options:    []interface{}{"soltero", "casado", "union_libre", "separado", "viudo"}, Conditions: []Condition{}},
+
 	{ID: "q_dependents", VariableKey: "has_dependents", Text: "¿Tienes hijos o dependientes económicos?",
-		FieldType: "boolean", Required: true, OrderIndex: 3, Active: true,
+		FieldType: "boolean", Required: true, OrderIndex: 4, Active: true,
 		Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
 
 	// Condicional: solo si has_dependents == true (branching real).
 	{ID: "q_num_dependents", VariableKey: "num_dependents", Text: "¿Cuántas personas dependen económicamente de ti?",
-		FieldType: "number", Required: true, OrderIndex: 4, Active: true,
+		FieldType: "number", Required: true, OrderIndex: 5, Active: true,
 		HelpText: "Número de dependientes", Placeholder: "Ej: 2",
 		Validation: map[string]interface{}{"min": 1.0, "max": 15.0}, Options: []interface{}{},
 		Conditions: []Condition{{DependsOnVariableKey: "has_dependents", Operator: "equals", ExpectedValue: true}}},
 
 	{ID: "q_pet", VariableKey: "has_pet", Text: "¿Tienes perro o gato en casa?",
-		FieldType: "boolean", Required: true, OrderIndex: 5, Active: true,
+		FieldType: "boolean", Required: false, OrderIndex: 6, Active: true,
 		Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
 
 	// Condicional: solo si has_pet == true.
 	{ID: "q_pet_type", VariableKey: "pet_type", Text: "¿Es perro o gato?",
-		FieldType: "select", Required: true, OrderIndex: 6, Active: true,
+		FieldType: "select", Required: false, OrderIndex: 7, Active: true,
 		Validation: map[string]interface{}{}, Options: []interface{}{"perro", "gato"},
 		Conditions: []Condition{{DependsOnVariableKey: "has_pet", Operator: "equals", ExpectedValue: true}}},
 
 	{ID: "q_housing", VariableKey: "housing_type", Text: "¿Vives en casa propia, arrendada o familiar?",
-		FieldType: "select", Required: true, OrderIndex: 7, Active: true,
+		FieldType: "select", Required: true, OrderIndex: 8, Active: true,
 		Validation: map[string]interface{}{}, Options: []interface{}{"propia", "arrendada", "familiar"}, Conditions: []Condition{}},
 
+	{ID: "q_vehicle", VariableKey: "has_vehicle", Text: "¿Tienes carro o moto?",
+		FieldType: "boolean", Required: false, OrderIndex: 9, Active: true,
+		Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
+
+	// Condicional: solo si has_vehicle == true.
+	{ID: "q_vehicle_type", VariableKey: "vehicle_type", Text: "¿Carro o moto?",
+		FieldType: "select", Required: false, OrderIndex: 10, Active: true,
+		Validation: map[string]interface{}{}, Options: []interface{}{"carro", "moto"},
+		Conditions: []Condition{{DependsOnVariableKey: "has_vehicle", Operator: "equals", ExpectedValue: true}}},
+
+	{ID: "q_bike", VariableKey: "rides_bike", Text: "¿Te mueves en bicicleta?",
+		FieldType: "boolean", Required: false, OrderIndex: 11, Active: true,
+		Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
+
 	{ID: "q_travel", VariableKey: "travels_often", Text: "¿Te desplazas con frecuencia por trabajo o estudio?",
-		FieldType: "boolean", Required: true, OrderIndex: 8, Active: true,
+		FieldType: "boolean", Required: false, OrderIndex: 12, Active: true,
+		Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
+
+	// Condicional: solo si travels_often == true.
+	{ID: "q_travel_abroad", VariableKey: "travels_abroad", Text: "¿Esos viajes incluyen salidas del país?",
+		FieldType: "boolean", Required: false, OrderIndex: 13, Active: true,
+		Validation: map[string]interface{}{}, Options: []interface{}{},
+		Conditions: []Condition{{DependsOnVariableKey: "travels_often", Operator: "equals", ExpectedValue: true}}},
+
+	{ID: "q_credit", VariableKey: "has_credit", Text: "¿Tienes algún crédito vigente (vivienda, vehículo o libre inversión)?",
+		FieldType: "boolean", Required: false, OrderIndex: 14, Active: true,
 		Validation: map[string]interface{}{}, Options: []interface{}{}, Conditions: []Condition{}},
 
 	// Calificación financiera (FINANCIAL_QUALIFICATION del Guardian engine).
 	{ID: "q_income", VariableKey: "monthly_income", Text: "¿Cuáles son tus ingresos mensuales aproximados?",
-		FieldType: "currency", Required: true, OrderIndex: 9, Active: true,
+		FieldType: "currency", Required: true, OrderIndex: 20, Active: true,
 		HelpText: "En pesos colombianos", Placeholder: "Ej: 2.500.000",
 		Validation: map[string]interface{}{"min": 0.0}, Options: []interface{}{}, Conditions: []Condition{}},
 
 	{ID: "q_savings", VariableKey: "saving_capacity", Text: "¿Cuánto podrías destinar al mes a tu protección?",
-		FieldType: "currency", Required: true, OrderIndex: 10, Active: true,
+		FieldType: "currency", Required: true, OrderIndex: 21, Active: true,
 		HelpText: "Capacidad de ahorro mensual", Placeholder: "Ej: 100.000",
 		Validation: map[string]interface{}{"min": 0.0}, Options: []interface{}{}, Conditions: []Condition{}},
 }
@@ -252,52 +234,215 @@ var questionsCatalog = []Question{
 // Reglas de recomendación (schema fiel; scoring ponderado)
 // ---------------------------------------------------------------------------
 
+// Las reglas se escriben contra productIDs (catalog.go) y NO contra UUIDs
+// sueltos. Los pesos están calibrados para que dos perfiles opuestos —soltero
+// sin hijos vs. casado con tres hijos— produzcan rankings claramente distintos:
+// el primero puntúa alto en accidentes/bicicleta/vida-ahorro y el segundo en
+// vida/salud/exequial/asistencia familiar. Los productos `empresas-*` no tienen
+// reglas a propósito: son B2B y nunca deben salir recomendados a una persona.
 var rulesCatalog = []Rule{
-	// Vida Familiar
-	{ID: "r_vida_dep", ProductID: pidVida, Name: "Con dependientes", VariableKey: "has_dependents",
+	// --- Seguro de vida: protección de quien depende de ti ------------------
+	{ID: "r_vida_dep", ProductID: productIDs["seguro-vida"], Name: "Con dependientes", VariableKey: "has_dependents",
 		Operator: "equals", ExpectedValue: true, Weight: 0.6, Active: true,
 		Reason: "Tienes dependientes económicos: este seguro les da respaldo ante eventos inesperados."},
-	{ID: "r_vida_numdep", ProductID: pidVida, Name: "Varios dependientes", VariableKey: "num_dependents",
-		Operator: "gte", ExpectedValue: 2.0, Weight: 0.3, Active: true,
+	{ID: "r_vida_numdep", ProductID: productIDs["seguro-vida"], Name: "Varios dependientes", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 2.0, Weight: 0.35, Active: true,
 		Reason: "Tienes varios dependientes: conviene un respaldo económico familiar más amplio."},
-	{ID: "r_vida_edad", ProductID: pidVida, Name: "Edad de responsabilidad", VariableKey: "age",
+	{ID: "r_vida_pareja", ProductID: productIDs["seguro-vida"], Name: "Con pareja", VariableKey: "marital_status",
+		Operator: "in", ExpectedValue: []interface{}{"casado", "union_libre"}, Weight: 0.25, Active: true,
+		Reason: "Compartes tu economía con tu pareja: el seguro de vida sostiene ese proyecto si tú faltas."},
+	{ID: "r_vida_edad", ProductID: productIDs["seguro-vida"], Name: "Edad de responsabilidad", VariableKey: "age",
 		Operator: "gte", ExpectedValue: 30.0, Weight: 0.1, Active: true,
-		Reason: "Por tu etapa de vida, un seguro de vida familiar protege a los tuyos."},
+		Reason: "Por tu etapa de vida, un seguro de vida protege a los tuyos."},
+	{ID: "r_vida_ingreso", ProductID: productIDs["seguro-vida"], Name: "Ingreso califica vida", VariableKey: "monthly_income",
+		Operator: "gte", ExpectedValue: 2000000.0, Weight: 0.15, Active: true,
+		Reason: "Con tus ingresos, el plan de vida es sostenible sin apretar tu presupuesto."},
 
-	// Mascota Protegida
-	{ID: "r_masc_has", ProductID: pidMascota, Name: "Tiene mascota", VariableKey: "has_pet",
-		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
-		Reason: "Tienes mascota en casa: cubre el cuidado de tu perro o gato."},
-	{ID: "r_masc_tipo", ProductID: pidMascota, Name: "Perro o gato", VariableKey: "pet_type",
-		Operator: "in", ExpectedValue: []interface{}{"perro", "gato"}, Weight: 0.2, Active: true,
-		Reason: "Tu mascota entra en la cobertura del plan."},
-
-	// Hogar Protegido
-	{ID: "r_hogar_propia", ProductID: pidHogar, Name: "Vivienda propia", VariableKey: "housing_type",
-		Operator: "equals", ExpectedValue: "propia", Weight: 0.6, Active: true,
-		Reason: "Vives en casa propia: protege tu vivienda y los bienes contenidos en ella."},
-	{ID: "r_hogar_arr", ProductID: pidHogar, Name: "Vivienda arrendada", VariableKey: "housing_type",
-		Operator: "equals", ExpectedValue: "arrendada", Weight: 0.4, Active: true,
-		Reason: "Aunque arriendas, puedes proteger tus bienes dentro del hogar."},
-
-	// Accidentes Personales
-	{ID: "r_acc_viaja", ProductID: pidAccidente, Name: "Se desplaza seguido", VariableKey: "travels_often",
-		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
-		Reason: "Te desplazas con frecuencia: protégete frente a accidentes personales."},
-	{ID: "r_acc_joven", ProductID: pidAccidente, Name: "Persona activa", VariableKey: "age",
+	// --- Vida y ahorro: perfil sin cargas familiares que construye patrimonio
+	{ID: "r_ahorro_sindep", ProductID: productIDs["seguro-vida-ahorro"], Name: "Sin dependientes", VariableKey: "has_dependents",
+		Operator: "equals", ExpectedValue: false, Weight: 0.35, Active: true,
+		Reason: "Hoy nadie depende económicamente de ti: puedes usar la protección también para construir ahorro."},
+	{ID: "r_ahorro_soltero", ProductID: productIDs["seguro-vida-ahorro"], Name: "Soltero", VariableKey: "marital_status",
+		Operator: "equals", ExpectedValue: "soltero", Weight: 0.3, Active: true,
+		Reason: "Siendo soltero, el componente de ahorro te rinde más que una suma asegurada alta."},
+	{ID: "r_ahorro_joven", ProductID: productIDs["seguro-vida-ahorro"], Name: "Empieza temprano", VariableKey: "age",
 		Operator: "lt", ExpectedValue: 40.0, Weight: 0.2, Active: true,
-		Reason: "Por tu ritmo de vida activo, la cobertura de accidentes te da tranquilidad."},
+		Reason: "Empezar joven hace que el componente de ahorro acumule más tiempo."},
+	{ID: "r_ahorro_capacidad", ProductID: productIDs["seguro-vida-ahorro"], Name: "Ahorro cubre la prima", VariableKey: "saving_capacity",
+		Operator: "gte", ExpectedValue: 58000.0, Weight: 0.25, Active: true,
+		Reason: "Tu capacidad de ahorro alcanza para la prima con componente de ahorro."},
 
-	// Calificación financiera (usadas por FINANCIAL_QUALIFICATION).
-	{ID: "r_vida_ingreso", ProductID: pidVida, Name: "Ingreso califica vida", VariableKey: "monthly_income",
-		Operator: "gte", ExpectedValue: 2000000.0, Weight: 0.2, Active: true,
-		Reason: "Con tus ingresos, el plan de vida familiar es sostenible sin apretar tu presupuesto."},
-	{ID: "r_hogar_ahorro", ProductID: pidHogar, Name: "Ahorro cubre hogar", VariableKey: "saving_capacity",
-		Operator: "gte", ExpectedValue: 32000.0, Weight: 0.2, Active: true,
-		Reason: "Tu capacidad de ahorro cubre la prima mensual del plan hogar."},
-	{ID: "r_acc_ahorro", ProductID: pidAccidente, Name: "Ahorro cubre accidentes", VariableKey: "saving_capacity",
+	// --- Accidentes personales --------------------------------------------
+	{ID: "r_acc_viaja", ProductID: productIDs["accidentes-personales"], Name: "Se desplaza seguido", VariableKey: "travels_often",
+		Operator: "equals", ExpectedValue: true, Weight: 0.5, Active: true,
+		Reason: "Te desplazas con frecuencia: protégete frente a accidentes personales."},
+	{ID: "r_acc_bici", ProductID: productIDs["accidentes-personales"], Name: "Se mueve en bici", VariableKey: "rides_bike",
+		Operator: "equals", ExpectedValue: true, Weight: 0.3, Active: true,
+		Reason: "Moverte en bicicleta te expone más en la vía: la cobertura de accidentes aplica directo."},
+	{ID: "r_acc_joven", ProductID: productIDs["accidentes-personales"], Name: "Persona activa", VariableKey: "age",
+		Operator: "lt", ExpectedValue: 40.0, Weight: 0.25, Active: true,
+		Reason: "Por tu ritmo de vida activo, la cobertura de accidentes te da tranquilidad."},
+	{ID: "r_acc_ahorro", ProductID: productIDs["accidentes-personales"], Name: "Ahorro cubre accidentes", VariableKey: "saving_capacity",
 		Operator: "gte", ExpectedValue: 18000.0, Weight: 0.1, Active: true,
 		Reason: "La prima de accidentes personales entra en tu capacidad de ahorro."},
+
+	// --- Renta por hospitalización ----------------------------------------
+	{ID: "r_renta_dep", ProductID: productIDs["renta-hospitalizacion"], Name: "Con dependientes", VariableKey: "has_dependents",
+		Operator: "equals", ExpectedValue: true, Weight: 0.3, Active: true,
+		Reason: "Si te hospitalizan, la renta diaria cubre lo que tu familia deja de recibir."},
+	{ID: "r_renta_ingreso", ProductID: productIDs["renta-hospitalizacion"], Name: "Ingreso ajustado", VariableKey: "monthly_income",
+		Operator: "lt", ExpectedValue: 3000000.0, Weight: 0.25, Active: true,
+		Reason: "Con tu nivel de ingreso, una incapacidad larga pesa: la renta diaria amortigua ese golpe."},
+	{ID: "r_renta_edad", ProductID: productIDs["renta-hospitalizacion"], Name: "Edad de mayor riesgo", VariableKey: "age",
+		Operator: "gte", ExpectedValue: 35.0, Weight: 0.2, Active: true,
+		Reason: "A partir de esta edad crece la probabilidad de hospitalización."},
+
+	// --- Diagnóstico de cáncer ---------------------------------------------
+	{ID: "r_cancer_edad", ProductID: productIDs["diagnostico-cancer"], Name: "Edad de tamizaje", VariableKey: "age",
+		Operator: "gte", ExpectedValue: 40.0, Weight: 0.45, Active: true,
+		Reason: "Desde los 40 aumenta la incidencia: este plan paga al diagnóstico, sin esperar tratamiento."},
+	{ID: "r_cancer_dep", ProductID: productIDs["diagnostico-cancer"], Name: "Con dependientes", VariableKey: "has_dependents",
+		Operator: "equals", ExpectedValue: true, Weight: 0.2, Active: true,
+		Reason: "Un diagnóstico así golpea la economía de toda la familia."},
+
+	// --- Póliza de salud ----------------------------------------------------
+	{ID: "r_salud_familia", ProductID: productIDs["poliza-salud"], Name: "Familia grande", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 3.0, Weight: 0.4, Active: true,
+		Reason: "Con tres o más personas a cargo, una póliza de salud familiar sale mejor que atenciones sueltas."},
+	{ID: "r_salud_ingreso", ProductID: productIDs["poliza-salud"], Name: "Ingreso suficiente", VariableKey: "monthly_income",
+		Operator: "gte", ExpectedValue: 5000000.0, Weight: 0.35, Active: true,
+		Reason: "Tus ingresos sostienen una póliza de salud completa."},
+	{ID: "r_salud_pareja", ProductID: productIDs["poliza-salud"], Name: "Con pareja", VariableKey: "marital_status",
+		Operator: "in", ExpectedValue: []interface{}{"casado", "union_libre"}, Weight: 0.15, Active: true,
+		Reason: "La póliza cubre también a tu pareja bajo el mismo plan."},
+
+	// --- Exequial familiar --------------------------------------------------
+	{ID: "r_exeq_numdep", ProductID: productIDs["exequial-familiar"], Name: "Varios dependientes", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 2.0, Weight: 0.45, Active: true,
+		Reason: "El plan exequial ampara a todo el grupo familiar con una sola cuota."},
+	{ID: "r_exeq_edad", ProductID: productIDs["exequial-familiar"], Name: "Edad del titular", VariableKey: "age",
+		Operator: "gte", ExpectedValue: 45.0, Weight: 0.3, Active: true,
+		Reason: "A tu edad conviene tener el servicio exequial resuelto y sin trámites para los tuyos."},
+	{ID: "r_exeq_pareja", ProductID: productIDs["exequial-familiar"], Name: "Con pareja", VariableKey: "marital_status",
+		Operator: "in", ExpectedValue: []interface{}{"casado", "union_libre"}, Weight: 0.2, Active: true,
+		Reason: "Tu pareja queda incluida en el mismo plan familiar."},
+
+	// --- Mascotas -----------------------------------------------------------
+	{ID: "r_masc_has", ProductID: productIDs["seguro-mascotas"], Name: "Tiene mascota", VariableKey: "has_pet",
+		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
+		Reason: "Tienes mascota en casa: cubre el cuidado de tu perro o gato."},
+	{ID: "r_masc_tipo", ProductID: productIDs["seguro-mascotas"], Name: "Perro o gato", VariableKey: "pet_type",
+		Operator: "in", ExpectedValue: []interface{}{"perro", "gato"}, Weight: 0.2, Active: true,
+		Reason: "Tu mascota entra en la cobertura del plan."},
+	{ID: "r_masc_ahorro", ProductID: productIDs["seguro-mascotas"], Name: "Ahorro cubre mascota", VariableKey: "saving_capacity",
+		Operator: "gte", ExpectedValue: 22000.0, Weight: 0.1, Active: true,
+		Reason: "La prima del plan de mascotas cabe en lo que puedes destinar al mes."},
+
+	// --- Autos y motos ------------------------------------------------------
+	{ID: "r_auto_has", ProductID: productIDs["autos-motos"], Name: "Tiene vehículo", VariableKey: "has_vehicle",
+		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
+		Reason: "Tienes vehículo: el todo riesgo cubre daños, hurto y responsabilidad civil."},
+	{ID: "r_auto_tipo", ProductID: productIDs["autos-motos"], Name: "Carro o moto", VariableKey: "vehicle_type",
+		Operator: "in", ExpectedValue: []interface{}{"carro", "moto"}, Weight: 0.2, Active: true,
+		Reason: "Tu vehículo entra en las modalidades del plan."},
+	{ID: "r_auto_viaja", ProductID: productIDs["autos-motos"], Name: "Rueda mucho", VariableKey: "travels_often",
+		Operator: "equals", ExpectedValue: true, Weight: 0.15, Active: true,
+		Reason: "Te desplazas seguido: más kilómetros, más exposición en la vía."},
+
+	// --- Hogar --------------------------------------------------------------
+	{ID: "r_hogar_propia", ProductID: productIDs["hogar"], Name: "Vivienda propia", VariableKey: "housing_type",
+		Operator: "equals", ExpectedValue: "propia", Weight: 0.6, Active: true,
+		Reason: "Vives en casa propia: protege tu vivienda y los bienes contenidos en ella."},
+	{ID: "r_hogar_arr", ProductID: productIDs["hogar"], Name: "Vivienda arrendada", VariableKey: "housing_type",
+		Operator: "equals", ExpectedValue: "arrendada", Weight: 0.3, Active: true,
+		Reason: "Aunque arriendas, puedes proteger tus bienes dentro del hogar."},
+	{ID: "r_hogar_familia", ProductID: productIDs["hogar"], Name: "Hogar con familia", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 2.0, Weight: 0.15, Active: true,
+		Reason: "En un hogar con varias personas hay más bienes y más uso: sube el riesgo de daño."},
+	{ID: "r_hogar_ahorro", ProductID: productIDs["hogar"], Name: "Ahorro cubre hogar", VariableKey: "saving_capacity",
+		Operator: "gte", ExpectedValue: 32000.0, Weight: 0.1, Active: true,
+		Reason: "Tu capacidad de ahorro cubre la prima mensual del plan hogar."},
+
+	// --- Bicicletas ---------------------------------------------------------
+	{ID: "r_bici_usa", ProductID: productIDs["bicicletas"], Name: "Se mueve en bici", VariableKey: "rides_bike",
+		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
+		Reason: "Te mueves en bicicleta: cubre hurto, daños y responsabilidad civil."},
+	{ID: "r_bici_edad", ProductID: productIDs["bicicletas"], Name: "Ciclista urbano", VariableKey: "age",
+		Operator: "lt", ExpectedValue: 45.0, Weight: 0.15, Active: true,
+		Reason: "Es el perfil que más usa la bici como medio de transporte diario."},
+
+	// --- Arrendamiento ------------------------------------------------------
+	{ID: "r_arr_arrienda", ProductID: productIDs["arrendamiento"], Name: "Vive en arriendo", VariableKey: "housing_type",
+		Operator: "equals", ExpectedValue: "arrendada", Weight: 0.6, Active: true,
+		Reason: "Vives en arriendo: el amparo respalda el canon y evita codeudores."},
+	{ID: "r_arr_ingreso", ProductID: productIDs["arrendamiento"], Name: "Ingreso verificable", VariableKey: "monthly_income",
+		Operator: "gte", ExpectedValue: 1500000.0, Weight: 0.15, Active: true,
+		Reason: "Con tu ingreso calificas al amparo de arrendamiento."},
+
+	// --- Asistencia médica familiar ----------------------------------------
+	{ID: "r_asmed_familia", ProductID: productIDs["asistencia-medica-familiar"], Name: "Familia grande", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 3.0, Weight: 0.5, Active: true,
+		Reason: "Con varios a cargo, la asistencia médica familiar resuelve consultas sin pagar cada una."},
+	{ID: "r_asmed_dep", ProductID: productIDs["asistencia-medica-familiar"], Name: "Con dependientes", VariableKey: "has_dependents",
+		Operator: "equals", ExpectedValue: true, Weight: 0.3, Active: true,
+		Reason: "Tus dependientes quedan cubiertos por la misma asistencia."},
+	{ID: "r_asmed_presupuesto", ProductID: productIDs["asistencia-medica-familiar"], Name: "Presupuesto ajustado", VariableKey: "saving_capacity",
+		Operator: "lt", ExpectedValue: 60000.0, Weight: 0.2, Active: true,
+		Reason: "Es la alternativa asequible cuando una póliza de salud completa no cabe en el presupuesto."},
+
+	// --- Asistencia mascotas ------------------------------------------------
+	{ID: "r_asmasc_has", ProductID: productIDs["asistencia-mascotas"], Name: "Tiene mascota", VariableKey: "has_pet",
+		Operator: "equals", ExpectedValue: true, Weight: 0.4, Active: true,
+		Reason: "Tienes mascota: la asistencia cubre urgencias y orientación veterinaria."},
+	{ID: "r_asmasc_presupuesto", ProductID: productIDs["asistencia-mascotas"], Name: "Presupuesto ajustado", VariableKey: "saving_capacity",
+		Operator: "lt", ExpectedValue: 25000.0, Weight: 0.25, Active: true,
+		Reason: "Cuesta menos que el seguro de mascotas y cubre lo esencial."},
+
+	// --- Asistencia jurídica ------------------------------------------------
+	{ID: "r_jur_arriendo", ProductID: productIDs["asistencia-juridica"], Name: "Vive en arriendo", VariableKey: "housing_type",
+		Operator: "equals", ExpectedValue: "arrendada", Weight: 0.25, Active: true,
+		Reason: "Los contratos de arriendo son la consulta jurídica más frecuente."},
+	{ID: "r_jur_vehiculo", ProductID: productIDs["asistencia-juridica"], Name: "Tiene vehículo", VariableKey: "has_vehicle",
+		Operator: "equals", ExpectedValue: true, Weight: 0.2, Active: true,
+		Reason: "Con vehículo puedes necesitar acompañamiento jurídico tras un siniestro."},
+	{ID: "r_jur_credito", ProductID: productIDs["asistencia-juridica"], Name: "Con crédito", VariableKey: "has_credit",
+		Operator: "equals", ExpectedValue: true, Weight: 0.2, Active: true,
+		Reason: "Tener crédito vigente hace útil la asesoría jurídica sobre obligaciones."},
+
+	// --- Vida deudor --------------------------------------------------------
+	{ID: "r_deudor_credito", ProductID: productIDs["seguro-vida-deudor"], Name: "Con crédito vigente", VariableKey: "has_credit",
+		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
+		Reason: "Tienes crédito vigente: este seguro evita que la deuda pase a tu familia."},
+	{ID: "r_deudor_dep", ProductID: productIDs["seguro-vida-deudor"], Name: "Con dependientes", VariableKey: "has_dependents",
+		Operator: "equals", ExpectedValue: true, Weight: 0.2, Active: true,
+		Reason: "Tus dependientes no heredarían el saldo del crédito."},
+
+	// --- Desempleo ----------------------------------------------------------
+	{ID: "r_desem_credito", ProductID: productIDs["seguro-desempleo"], Name: "Con crédito vigente", VariableKey: "has_credit",
+		Operator: "equals", ExpectedValue: true, Weight: 0.5, Active: true,
+		Reason: "Con crédito vigente, quedarte sin empleo compromete las cuotas: este amparo las cubre un tiempo."},
+	{ID: "r_desem_dep", ProductID: productIDs["seguro-desempleo"], Name: "Con dependientes", VariableKey: "has_dependents",
+		Operator: "equals", ExpectedValue: true, Weight: 0.3, Active: true,
+		Reason: "Tu ingreso sostiene a otras personas: perderlo tiene efecto inmediato en casa."},
+	{ID: "r_desem_numdep", ProductID: productIDs["seguro-desempleo"], Name: "Familia grande", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 3.0, Weight: 0.2, Active: true,
+		Reason: "Con tres o más personas a cargo, el colchón ante desempleo pesa más."},
+
+	// --- Incendio -----------------------------------------------------------
+	{ID: "r_inc_propia", ProductID: productIDs["seguro-incendio"], Name: "Vivienda propia", VariableKey: "housing_type",
+		Operator: "equals", ExpectedValue: "propia", Weight: 0.5, Active: true,
+		Reason: "La vivienda propia es tu patrimonio principal: el amparo de incendio la reconstruye."},
+	{ID: "r_inc_familia", ProductID: productIDs["seguro-incendio"], Name: "Hogar con familia", VariableKey: "num_dependents",
+		Operator: "gte", ExpectedValue: 2.0, Weight: 0.1, Active: true,
+		Reason: "Un siniestro así dejaría sin techo a varias personas."},
+
+	// --- Asistencia médica en viajes ---------------------------------------
+	{ID: "r_viaje_exterior", ProductID: productIDs["asistencia-medica-viajes"], Name: "Viaja al exterior", VariableKey: "travels_abroad",
+		Operator: "equals", ExpectedValue: true, Weight: 0.7, Active: true,
+		Reason: "Sales del país: fuera de Colombia tu sistema de salud no te cubre."},
+	{ID: "r_viaje_frecuente", ProductID: productIDs["asistencia-medica-viajes"], Name: "Viaja seguido", VariableKey: "travels_often",
+		Operator: "equals", ExpectedValue: true, Weight: 0.25, Active: true,
+		Reason: "Viajas con frecuencia: la asistencia aplica en cada desplazamiento."},
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +608,7 @@ func recommend(answers map[string]interface{}, limit int) []Recommendation {
 			ProductID: pid, Code: p["code"].(string), Name: p["name"].(string),
 			Category: p["category"].(string), BasePrice: p["base_price"].(float64),
 			Score: round2(a.score), Reason: a.reason,
+			Coverages: productCoverages(p),
 		})
 	}
 	sort.SliceStable(recs, func(i, j int) bool { return recs[i].Score > recs[j].Score })
@@ -512,13 +658,20 @@ type store struct {
 	users map[string]*User
 	convs map[string]*Conversation
 	vars  map[string]map[string]UserVariable // user_id -> key -> variable
+
+	// Cotización y vinculación: extensión del mock sobre el contrato real
+	// (ver enrollment.go), necesaria para cerrar la venta dentro del chat.
+	quotes      map[string]*Quote
+	enrollments map[string]*Enrollment
 }
 
 func newStore() *store {
 	return &store{
-		users: map[string]*User{},
-		convs: map[string]*Conversation{},
-		vars:  map[string]map[string]UserVariable{},
+		users:       map[string]*User{},
+		convs:       map[string]*Conversation{},
+		vars:        map[string]map[string]UserVariable{},
+		quotes:      map[string]*Quote{},
+		enrollments: map[string]*Enrollment{},
 	}
 }
 
@@ -847,7 +1000,11 @@ func (s *store) handleComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *store) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "mock-protege"})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "ok", "service": "mock-protege", "products": len(products),
+		// Declarado explícitamente: estas rutas NO existen en el OpenAPI real.
+		"extensions": []string{"POST /api/v1/quotes", "POST /api/v1/enrollments"},
+	})
 }
 
 func logRequests(next http.Handler) http.Handler {
@@ -857,8 +1014,9 @@ func logRequests(next http.Handler) http.Handler {
 	})
 }
 
-func main() {
-	s := newStore()
+// routes arma el router. Está separado de main() para que los tests puedan
+// ejercitar la API completa por HTTP, sin abrir un puerto.
+func routes(s *store) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/products", s.handleProducts)
@@ -875,8 +1033,16 @@ func main() {
 	mux.HandleFunc("GET /api/v1/conversations/{id}", s.handleConversationGet)
 	mux.HandleFunc("POST /api/v1/conversations/{id}/answers", s.handleAnswer)
 	mux.HandleFunc("POST /api/v1/conversations/{id}/complete", s.handleComplete)
+	// Extensión del mock (no existe en el OpenAPI real): cierre de la venta.
+	mux.HandleFunc("POST /api/v1/quotes", s.handleQuoteCreate)
+	mux.HandleFunc("POST /api/v1/enrollments", s.handleEnrollmentCreate)
+	mux.HandleFunc("GET /api/v1/enrollments/{id}", s.handleEnrollmentGet)
+	mux.HandleFunc("GET /api/v1/users/{user_id}/enrollments", s.handleUserEnrollments)
+	return mux
+}
 
+func main() {
 	addr := ":9000"
 	log.Printf("mock-protege (Colsubsidio Protege API · demo) on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
+	log.Fatal(http.ListenAndServe(addr, logRequests(routes(newStore()))))
 }

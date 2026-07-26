@@ -1,9 +1,7 @@
-backend/go.sum
-*.log
 .env
-
-# compiled Go binary (build artifact, never version)
-backend/guardianai
-
-# compiled mock binary
-mock-protege/protegemock
+*.env.local
+node_modules/
+dist/
+*.log
+.DS_Store
+bin/
