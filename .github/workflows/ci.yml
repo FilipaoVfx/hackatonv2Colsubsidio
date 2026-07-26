@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: guardian-ai/backend/go.sum
+      - name: go vet
+        working-directory: guardian-ai/backend
+        run: go vet ./...
+      # Sin secretos a propósito: las 22 suites usan dobles, no red.
+      - name: go test
+        working-directory: guardian-ai/backend
+        run: go test ./...
+
+  cli:
+    name: CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: guardian-ai/cli/go.sum
+      - name: go vet
+        working-directory: guardian-ai/cli
+        run: go vet ./...
+      - name: go test
+        working-directory: guardian-ai/cli
+        run: go test ./...
+      # El release es windows/amd64: si el cross-compile se rompe, hay que
+      # enterarse en el PR y no al publicar.
+      - name: cross-compile windows
+        working-directory: guardian-ai/cli
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o /dev/null .

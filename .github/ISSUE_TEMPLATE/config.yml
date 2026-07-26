@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentación
+    url: https://github.com/FilipaoVfx/hackatonv2Colsubsidio/tree/main/docs
+    about: Arquitectura, API, ADRs y guías
+  - name: Probar la CLI sin instalar
+    url: https://teamflashackaton30x.com/probar
+    about: El sistema real en tu navegador
