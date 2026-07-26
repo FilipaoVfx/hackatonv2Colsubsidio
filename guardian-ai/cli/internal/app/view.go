@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	"guardianai/cli/internal/ui"
 
 	"github.com/charmbracelet/lipgloss"
@@ -18,7 +20,7 @@ func (m Model) View() string {
 	}
 
 	modeLabel := m.mode.String()
-	header := ui.RenderHeader(m.w, m.live, modeLabel)
+	header := ui.RenderHeader(m.w, m.live, modeLabel, m.cfg.ReadOnly)
 	tabs := ui.RenderTabs(m.w, m.active)
 
 	var body string
@@ -37,6 +39,14 @@ func (m Model) View() string {
 
 	hints := "q salir · tab cambiar · 1-8 saltar · ctrl+p paleta · ? ayuda · w/s simular (en Pipeline)"
 	status := ui.RenderStatusBar(m.w, hints)
+
+	// Pin the status bar to the bottom. Modules render only as tall as their
+	// content, which reads fine in a snug terminal but leaves the status bar
+	// floating mid-screen in a tall one — and the browser terminal the jury
+	// opens is whatever height their window happens to be.
+	if pad := m.h - chromeHeight + 1 - lipgloss.Height(body); pad > 0 {
+		body += strings.Repeat("\n", pad)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, body, status)
 }

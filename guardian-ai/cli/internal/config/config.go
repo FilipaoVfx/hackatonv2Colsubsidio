@@ -10,4 +10,9 @@ type Config struct {
 	Demo    bool
 	Chaos   bool
 	Replay  string
+
+	// ReadOnly blocks every mutating call (studio draft/publish/rollback).
+	// Set for the public web-terminal session so a juror cannot roll back the
+	// production prompt mid-pitch.
+	ReadOnly bool
 }

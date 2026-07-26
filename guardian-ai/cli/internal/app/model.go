@@ -47,6 +47,7 @@ type Model struct {
 
 func New(cfg config.Config) Model {
 	src := api.NewLiveSource(cfg.APIURL, cfg.Timeout)
+	src.SetReadOnly(cfg.ReadOnly)
 	return Model{
 		cfg: cfg,
 		src: src,

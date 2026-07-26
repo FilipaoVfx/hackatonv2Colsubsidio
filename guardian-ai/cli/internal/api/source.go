@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -31,10 +32,18 @@ type Source interface {
 	Stream() *EventStream
 }
 
+// ErrReadOnly is returned by every mutating method when the source runs in
+// read-only mode. The guard lives here, at the single point every write funnels
+// through, rather than in the modules: the public web-terminal session shares
+// one binary with the operator's, and a UI-level check would be bypassable via
+// the command palette or a future non-interactive subcommand.
+var ErrReadOnly = errors.New("sesión de solo lectura: escritura bloqueada")
+
 // LiveSource is the straightforward Source backed by the real HTTP+WS client.
 type LiveSource struct {
-	client *Client
-	stream *EventStream
+	client   *Client
+	stream   *EventStream
+	readOnly bool
 }
 
 func NewLiveSource(baseURL string, timeout time.Duration) *LiveSource {
@@ -43,6 +52,11 @@ func NewLiveSource(baseURL string, timeout time.Duration) *LiveSource {
 		stream: NewEventStream(baseURL),
 	}
 }
+
+// SetReadOnly blocks every mutating call on this source.
+func (l *LiveSource) SetReadOnly(v bool) { l.readOnly = v }
+
+func (l *LiveSource) ReadOnly() bool { return l.readOnly }
 
 func (l *LiveSource) Mode() SourceMode { return ModeLive }
 
@@ -78,12 +92,21 @@ func (l *LiveSource) StudioConfig(ctx context.Context) (map[string]any, error) {
 	return l.client.StudioConfig(ctx)
 }
 func (l *LiveSource) StudioSaveDraft(ctx context.Context, draft map[string]any) (map[string]any, error) {
+	if l.readOnly {
+		return nil, ErrReadOnly
+	}
 	return l.client.StudioSaveDraft(ctx, draft)
 }
 func (l *LiveSource) StudioPublish(ctx context.Context, note string) (map[string]any, error) {
+	if l.readOnly {
+		return nil, ErrReadOnly
+	}
 	return l.client.StudioPublish(ctx, note)
 }
 func (l *LiveSource) StudioRollback(ctx context.Context, version int, note string) (map[string]any, error) {
+	if l.readOnly {
+		return nil, ErrReadOnly
+	}
 	return l.client.StudioRollback(ctx, version, note)
 }
 func (l *LiveSource) PlaygroundInfo(ctx context.Context) (map[string]any, error) {

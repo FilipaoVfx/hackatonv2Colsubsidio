@@ -21,8 +21,9 @@ var (
 			Foreground(theme.Ink).Background(theme.Carbon).Bold(true)
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(theme.Humo).Background(theme.Cloud).Padding(0, 1)
-	liveDot    = lipgloss.NewStyle().Foreground(theme.Live)
-	offlineDot = lipgloss.NewStyle().Foreground(theme.Danger)
+	liveDot      = lipgloss.NewStyle().Foreground(theme.Live)
+	offlineDot   = lipgloss.NewStyle().Foreground(theme.Danger)
+	readOnlyChip = lipgloss.NewStyle().Foreground(theme.Humo).Background(theme.Cloud)
 )
 
 // RenderTabs draws the 8-module tab bar, numbered 1-8.
@@ -41,14 +42,19 @@ func RenderTabs(width int, active int) string {
 }
 
 // RenderHeader draws "Secura · Guardian AI Operations Center" plus a
-// connection dot fed by the real stream/health state.
-func RenderHeader(width int, live bool, modeLabel string) string {
+// connection dot fed by the real stream/health state. readOnly adds a chip so a
+// blocked publish reads as policy, not as a broken build.
+func RenderHeader(width int, live bool, modeLabel string, readOnly bool) string {
 	dot := offlineDot.Render("●")
 	if live {
 		dot = liveDot.Render("●")
 	}
 	left := headerStyle.Render(" SECURA · Guardian AI Operations Center")
-	right := statusBarStyle.Render(dot + " " + modeLabel + " ")
+	chip := ""
+	if readOnly {
+		chip = readOnlyChip.Render("◇ solo lectura") + " "
+	}
+	right := statusBarStyle.Render(chip + dot + " " + modeLabel + " ")
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
