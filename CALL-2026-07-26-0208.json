@@ -1,0 +1,220 @@
+{
+  "advisor_name": "Sofía",
+  "advisor_voice": "Voz Natural",
+  "call_code": "CALL-2026-07-26-0208",
+  "call_id": "6d7e8d23-e3e7-40f4-aa7a-b42b24a52213",
+  "channel": "whatsapp",
+  "customer": {
+    "age": 0,
+    "children": 0,
+    "city": "",
+    "full_name": "Cliente 5882",
+    "income_range": "",
+    "is_new": true,
+    "marital_status": "",
+    "occupation": "",
+    "phone": "+573035882"
+  },
+  "duration_sec": 5,
+  "insights": [
+    {
+      "category": "perfil",
+      "priority": "Media",
+      "text": "Perfil construido en vivo: affiliate_serie=40653, age_range=36 a 45 años, city=BOGOTA D.C., estado_pipeline=nuevo, family_segment=LAMBDA, fuente_perfil=estimación demo (hash de teléfono), full_name=Sara, gender=M, has_dependents=true, marital_status=casado, rango_salarial=Entre 2.5 y 3 SMLV, uses_drugstore=true"
+    }
+  ],
+  "outcome": "Seguimiento",
+  "phases": [
+    {
+      "agent_pct": 0,
+      "checklist": [
+        "El asesor IA se presentó y abrió la conversación.",
+        "Se estableció el contexto de la llamada."
+      ],
+      "customer_pct": 100,
+      "emotion": "Neutral",
+      "emotion_conf": 0.8,
+      "end_sec": 0,
+      "findings": "Fase completada.",
+      "idx": 1,
+      "keywords": [
+        "arrendada",
+        "casa",
+        "casada",
+        "hijo"
+      ],
+      "name": "Saludo y Bienvenida",
+      "objective": "Generar confianza y establecer el contexto",
+      "pct_of_total": 0,
+      "start_sec": 0,
+      "status": "Completada"
+    },
+    {
+      "agent_pct": 83,
+      "checklist": [
+        "Se exploraron las necesidades del cliente.",
+        "Se detectaron 12 rasgos de perfil."
+      ],
+      "customer_pct": 17,
+      "emotion": "Neutral",
+      "emotion_conf": 0.8,
+      "end_sec": 2,
+      "findings": "Perfil detectado — affiliate_serie: 40653; age_range: 36 a 45 años; city: BOGOTA D.C.; estado_pipeline: nuevo; family_segment: LAMBDA; fuente_perfil: estimación demo (hash de teléfono); full_name: Sara; gender: M; has_dependents: true; marital_status: casado; rango_salarial: Entre 2.5 y 3 SMLV; uses_drugstore: true.",
+      "idx": 2,
+      "keywords": [
+        "arrendada",
+        "casa",
+        "casada",
+        "hijo"
+      ],
+      "name": "Descubrimiento",
+      "objective": "Identificar necesidades y construir el perfil",
+      "pct_of_total": 40,
+      "start_sec": 0,
+      "status": "Completada"
+    },
+    {
+      "agent_pct": 84,
+      "checklist": [
+        "Se evaluó el nivel de riesgo del cliente.",
+        "Se consideró la capacidad de pago."
+      ],
+      "customer_pct": 16,
+      "emotion": "Neutral",
+      "emotion_conf": 0.8,
+      "end_sec": 3,
+      "findings": "Fase completada.",
+      "idx": 3,
+      "keywords": [
+        "ahora",
+        "algún",
+        "arrendada",
+        "ayuda"
+      ],
+      "name": "Análisis de Riesgos",
+      "objective": "Evaluar exposición y capacidad de pago",
+      "pct_of_total": 20,
+      "start_sec": 2,
+      "status": "Completada"
+    },
+    {
+      "agent_pct": 87,
+      "checklist": [
+        "Se presentó una opción ajustada al perfil."
+      ],
+      "customer_pct": 13,
+      "emotion": "Neutral",
+      "emotion_conf": 0.8,
+      "end_sec": 4,
+      "findings": "Presentación de opciones al cliente.",
+      "idx": 4,
+      "keywords": [
+        "hablar",
+        "alguien",
+        "aquí",
+        "atención"
+      ],
+      "name": "Presentación de Opciones",
+      "objective": "Presentar producto ajustado al perfil",
+      "pct_of_total": 20,
+      "start_sec": 3,
+      "status": "Completada"
+    },
+    {
+      "agent_pct": 100,
+      "checklist": [
+        "Se cerró la conversación con los siguientes pasos."
+      ],
+      "customer_pct": 0,
+      "emotion": "Neutral",
+      "emotion_conf": 0.8,
+      "end_sec": 5,
+      "findings": "Fase completada.",
+      "idx": 5,
+      "keywords": [
+        "colsubsidio",
+        "alguien",
+        "aquí",
+        "asesor"
+      ],
+      "name": "Cierre y Siguientes Pasos",
+      "objective": "Confirmar interés y acordar siguientes pasos",
+      "pct_of_total": 20,
+      "start_sec": 4,
+      "status": "Completada"
+    }
+  ],
+  "recording_url": "",
+  "score_label": "Regular",
+  "score_overall": 64,
+  "scores": [
+    {
+      "dimension": "discovery_quality",
+      "label": "Calidad de Descubrimiento",
+      "value": 60
+    },
+    {
+      "dimension": "closing",
+      "label": "Cierre",
+      "value": 55
+    },
+    {
+      "dimension": "clarity",
+      "label": "Claridad",
+      "value": 75
+    },
+    {
+      "dimension": "empathy",
+      "label": "Empatía",
+      "value": 70
+    },
+    {
+      "dimension": "objection_handling",
+      "label": "Manejo de Objeciones",
+      "value": 60
+    }
+  ],
+  "started_at": "2026-07-25T21:08:33",
+  "transcript": [
+    {
+      "at_sec": 0,
+      "dur_sec": 2,
+      "idx": 1,
+      "role": "customer",
+      "speaker": "Cliente",
+      "text": "Hola, soy Sara, casada con un hijo, casa arrendada"
+    },
+    {
+      "at_sec": 2,
+      "dur_sec": 1,
+      "idx": 2,
+      "role": "agent",
+      "speaker": "Sofía (IA)",
+      "text": "¡Hola, Sara! Encantado de conocerte. Veo que estás casada y tienes un hijo, y que vives en una casa arrendada. Eso me ayuda a entender mejor tus necesidades. 😊 Ahora, cuéntame, ¿tienes algún crédito vigente, como para vivienda o vehículo?"
+    },
+    {
+      "at_sec": 3,
+      "dur_sec": 1,
+      "idx": 3,
+      "role": "customer",
+      "speaker": "Cliente",
+      "text": "prefiero hablar con una persona de carne y hueso"
+    },
+    {
+      "at_sec": 4,
+      "dur_sec": 1,
+      "idx": 4,
+      "role": "agent",
+      "speaker": "Sofía (IA)",
+      "text": "Entiendo, Sara. Si prefieres hablar con alguien directamente, te recomiendo contactar a nuestro servicio al cliente de Colsubsidio para que te brinden la atención personalizada que necesitas. Si cambias de opinión, estaré aquí para ayudarte con cualquier duda o información que necesites. ¡Cuídate mucho!"
+    },
+    {
+      "at_sec": 5,
+      "dur_sec": 0,
+      "idx": 5,
+      "role": "agent",
+      "speaker": "Sofía (IA)",
+      "text": "¡Perfecto! Un asesor de Colsubsidio te contactará muy pronto con todo listo. Gracias por tu confianza 🛡️"
+    }
+  ]
+}
